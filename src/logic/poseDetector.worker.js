@@ -56,16 +56,17 @@ async function initialize(options = {}) {
   }
 
   currentMinConfidence = options.minConfidence ?? 0.6;
+  const localWasmBase = options.localWasmBasePath || "/mediapipe/wasm";
+  const localModelBase = options.localModelBasePath || "/mediapipe/models";
   const modelVariant = options.modelVariant === "full" ? "full" : "lite";
-  const modelUrl =
+  const modelFile =
     modelVariant === "full"
-      ? "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task"
-      : "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task";
+      ? "pose_landmarker_full.task"
+      : "pose_landmarker_lite.task";
+  const modelUrl = `${localModelBase}/${modelFile}`;
 
   try {
-    const vision = await FilesetResolver.forVisionTasks(
-      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
-    );
+    const vision = await FilesetResolver.forVisionTasks(localWasmBase);
 
     poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
       baseOptions: {

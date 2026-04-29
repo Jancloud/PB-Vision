@@ -327,3 +327,20 @@ npm run dev
 1. 在页面“教练总结报告”区写入文本；
 2. 自动下载一个 `running-report-时间戳.txt` 文件；
 3. 显示“报告已生成”提示。
+
+## 18. 国内可访问优化（本地模型资源化）
+为解决中国大陆访问不稳定，Logic 层已从外网依赖改为站内本地资源：
+
+1. Worker 加载路径改为：
+- Wasm：`/mediapipe/wasm`
+- 模型：`/mediapipe/models/pose_landmarker_lite.task`
+
+2. 新增静态资源目录：
+- `public/mediapipe/wasm/*`
+- `public/mediapipe/models/pose_landmarker_lite.task`
+
+3. 这样部署到 Vercel/EdgeOne 后，前端不再请求 `cdn.jsdelivr.net` 和 `storage.googleapis.com`，
+能明显减少国内网络环境下的加载失败概率。
+
+4. 如果后续要切换 full 模型，请再补充：
+- `public/mediapipe/models/pose_landmarker_full.task`
