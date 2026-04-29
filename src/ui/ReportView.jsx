@@ -3,9 +3,9 @@
 const styles = {
   card: {
     marginTop: 16,
-    border: "1px solid #232d38",
+    border: "1px solid #1c2b3b",
     borderRadius: 16,
-    background: "linear-gradient(180deg, #151b22 0%, #10161d 100%)",
+    background: "linear-gradient(180deg, #0c1219 0%, #090f16 100%)",
     padding: 16,
   },
   title: {
@@ -25,7 +25,8 @@ const styles = {
     fontSize: 56,
     lineHeight: 1,
     fontWeight: 900,
-    color: "#31ff9a",
+    color: "#00f3ff",
+    textShadow: "0 0 10px rgba(0, 243, 255, 0.35)",
   },
   scoreLabel: {
     color: "#93a4b7",
@@ -43,7 +44,7 @@ const styles = {
     padding: "4px 10px",
     fontSize: 12,
     color: "#d3deea",
-    background: "#0f151d",
+    background: "#0b121a",
   },
   summary: {
     color: "#dce7f3",
@@ -55,7 +56,7 @@ const styles = {
   details: {
     border: "1px solid #2e3b4a",
     borderRadius: 12,
-    background: "#0f151d",
+    background: "#0b121a",
     padding: 10,
     color: "#c6d3e3",
   },
@@ -75,7 +76,7 @@ const styles = {
     borderRadius: 10,
     padding: "8px 12px",
     fontWeight: 700,
-    background: "#1a2530",
+    background: "#0f2234",
     color: "#e8f0fa",
     cursor: "pointer",
   },
@@ -127,4 +128,3 @@ export default function ReportView({
     </section>
   );
 }
-

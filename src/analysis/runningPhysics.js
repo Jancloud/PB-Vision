@@ -90,7 +90,7 @@ export function getSkeletonAlert(metrics) {
   const kneeFlex = metrics?.kneeFlexionAngle;
 
   let alertLevel = "normal";
-  let lineColor = "#22c55e"; // 正常：亮绿色
+  let lineColor = "#00f3ff"; // 正常：霓虹荧光蓝
 
   // 后仰/过直
   if (torsoLean < 4) {
@@ -172,4 +172,3 @@ export function getGaitAdvice(metrics) {
     action,
   };
 }
-

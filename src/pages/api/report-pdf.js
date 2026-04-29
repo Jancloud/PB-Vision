@@ -17,7 +17,7 @@ function buildPdfBuffer(payload) {
 
     doc.fillColor("#111111").fontSize(22).text("Running Diagnostic Report", { align: "left" });
     doc.moveDown(0.5);
-    doc.fillColor("#18a058").fontSize(40).text(String(score), { continued: true });
+    doc.fillColor("#00f3ff").fontSize(40).text(String(score), { continued: true });
     doc.fillColor("#666666").fontSize(14).text(" / 100");
     doc.moveDown(0.3);
     doc.fillColor("#444444").fontSize(11).text(`Source: ${source}`);

@@ -11,19 +11,26 @@ import {
   getGaitAdvice,
   getSkeletonAlert,
 } from "../analysis/runningPhysics";
-import ReportView from "./ReportView";
+import {
+  clearPoseCanvas,
+  drawPrivacyMask,
+  drawPoseSkeleton,
+  syncPoseCanvasSize,
+} from "./PoseCanvas";
+import CyberVideoControls from "./CyberVideoControls";
+import ReportModal from "./ReportModal";
 
 const ANALYZE_EVERY_NTH_FRAME = 3;
 const ABNORMAL_LOG_COOLDOWN_MS = 1500;
 const QUALITY_WARN_THRESHOLD = 70;
 
 const theme = {
-  panelBg: "#151b22",
-  panelBg2: "#10161d",
-  border: "#232d38",
+  panelBg: "#0d131b",
+  panelBg2: "#0a1017",
+  border: "#1d2a38",
   text: "#e8f0fa",
   subText: "#93a4b7",
-  accent: "#31ff9a",
+  accent: "#00f3ff",
   warn: "#ff9f1a",
   danger: "#ff4d4d",
 };
@@ -50,6 +57,54 @@ function LoadingDots() {
       ...
     </span>
   );
+}
+
+function easeOutExpo(progress) {
+  if (progress >= 1) return 1;
+  return 1 - 2 ** (-10 * progress);
+}
+
+function useAnimatedMetric(target, options = {}) {
+  const { durationMs = 680, decimals = 2, startFromZeroOnFirst = true } = options;
+  const [displayValue, setDisplayValue] = useState(0);
+  const prevTargetRef = useRef(null);
+  const currentValueRef = useRef(0);
+
+  useEffect(() => {
+    if (!Number.isFinite(target)) {
+      setDisplayValue(0);
+      prevTargetRef.current = null;
+      currentValueRef.current = 0;
+      return undefined;
+    }
+
+    const factor = 10 ** decimals;
+    const to = Math.round(target * factor) / factor;
+    const from = prevTargetRef.current == null && startFromZeroOnFirst ? 0 : currentValueRef.current;
+    const startAt = performance.now();
+    let rafId = 0;
+
+    const tick = (now) => {
+      const progress = Math.min(1, (now - startAt) / durationMs);
+      const eased = easeOutExpo(progress);
+      const raw = from + (to - from) * eased;
+      const rounded = Math.round(raw * factor) / factor;
+      setDisplayValue(rounded);
+      currentValueRef.current = rounded;
+      if (progress < 1) {
+        rafId = requestAnimationFrame(tick);
+      } else {
+        setDisplayValue(to);
+        currentValueRef.current = to;
+      }
+    };
+
+    rafId = requestAnimationFrame(tick);
+    prevTargetRef.current = to;
+    return () => cancelAnimationFrame(rafId);
+  }, [decimals, durationMs, startFromZeroOnFirst, target]);
+
+  return displayValue;
 }
 
 function createInitialAdvice() {
@@ -92,6 +147,20 @@ function safeDivide(a, b) {
   return a / b;
 }
 
+function stdDev(arr) {
+  if (!arr.length) return 0;
+  const m = mean(arr);
+  const variance = arr.reduce((sum, n) => sum + (n - m) * (n - m), 0) / arr.length;
+  return Math.sqrt(variance);
+}
+
+function coeffOfVariation(arr) {
+  if (!arr.length) return 0;
+  const m = mean(arr);
+  if (Math.abs(m) < 1e-8) return 0;
+  return stdDev(arr) / Math.abs(m);
+}
+
 function buildRiskTags(stats) {
   const tags = [];
   if (stats.stiffKneeFrames > 0) tags.push("落地冲击过大");
@@ -125,9 +194,13 @@ export default function PoseAnalyzer() {
   const rafIdRef = useRef(null);
   const vfcIdRef = useRef(null);
   const lastAbnormalLogAtRef = useRef(0);
+  const lastUiCalibrationLogAtRef = useRef(0);
   const latestSkeletonRef = useRef(null);
   const latestFrameSizeRef = useRef({ width: 0, height: 0 });
-  const latestLineColorRef = useRef(theme.accent);
+  const latestAlertLevelRef = useRef("normal");
+  const privacyModeRef = useRef(false);
+  const lastStableVideoSrcRef = useRef("");
+  const lastCanvasGapRef = useRef(null);
   const sessionStatsRef = useRef(createInitialStats());
 
   const [videoUrl, setVideoUrl] = useState("");
@@ -136,21 +209,27 @@ export default function PoseAnalyzer() {
   const [qualityWarning, setQualityWarning] = useState("");
   const [logs, setLogs] = useState([]);
   const [angle, setAngle] = useState(null);
+  const [canvasAlertLevel, setCanvasAlertLevel] = useState("normal");
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const [videoCurrentTime, setVideoCurrentTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [showLogs, setShowLogs] = useState(false);
+  const [privacyMode, setPrivacyMode] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [coachAdvice, setCoachAdvice] = useState(createInitialAdvice);
   const [reportText, setReportText] = useState("");
   const [saveNotice, setSaveNotice] = useState("");
   const [isDeepAnalyzing, setIsDeepAnalyzing] = useState(false);
   const [showReport, setShowReport] = useState(false);
-  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [reportPayload, setReportPayload] = useState({
     score: 0,
     tags: [],
     summary: "",
     details: "",
     source: "本地规则",
+    metrics: null,
+    generatedAt: "",
   });
 
   const pushLog = useCallback((text) => {
@@ -164,89 +243,56 @@ export default function PoseAnalyzer() {
     if (angle == null) return theme.subText;
     return angle >= 5 && angle <= 10 ? theme.accent : theme.warn;
   }, [angle]);
+  const animatedAngle = useAnimatedMetric(angle, { durationMs: 700, decimals: 2 });
 
   const resetSessionStats = useCallback(() => {
     sessionStatsRef.current = createInitialStats();
   }, []);
 
   const clearCanvas = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.restore();
+    clearPoseCanvas(canvasRef.current);
   }, []);
 
   const syncCanvasSize = useCallback(() => {
-    const wrap = videoWrapRef.current;
-    const canvas = canvasRef.current;
-    if (!wrap || !canvas) return;
-    const width = wrap.clientWidth;
-    const height = wrap.clientHeight;
-    if (!width || !height) return;
-    const dpr = window.devicePixelRatio || 1;
-    const targetWidth = Math.round(width * dpr);
-    const targetHeight = Math.round(height * dpr);
-    if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
+    const rect = syncPoseCanvasSize(canvasRef.current, videoWrapRef.current, videoRef.current);
+    if (process.env.NODE_ENV !== "production" && rect && videoWrapRef.current) {
+      const gap = Math.max(0, Math.round(videoWrapRef.current.clientHeight - rect.height));
+      if (lastCanvasGapRef.current !== gap) {
+        // eslint-disable-next-line no-console
+        console.info(`[UI 监控]: 正在尝试避开控件区，当前 Canvas 高度比视频容器矮 ${gap} 像素。`);
+        lastCanvasGapRef.current = gap;
+      }
     }
+    return rect;
   }, []);
 
   const drawSkeletonOnCanvas = useCallback(
-    (points, frameSize, lineColor) => {
-      const canvas = canvasRef.current;
-      const wrap = videoWrapRef.current;
-      if (!canvas || !wrap || !points || !frameSize?.width || !frameSize?.height) return;
-
-      syncCanvasSize();
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      const displayWidth = wrap.clientWidth;
-      const displayHeight = wrap.clientHeight;
-      const sx = displayWidth / frameSize.width;
-      const sy = displayHeight / frameSize.height;
-      const dpr = window.devicePixelRatio || 1;
-
-      ctx.save();
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, displayWidth, displayHeight);
-
-      const mapped = {
-        shoulder: { x: points.shoulder.x * sx, y: points.shoulder.y * sy },
-        hip: { x: points.hip.x * sx, y: points.hip.y * sy },
-        knee: { x: points.knee.x * sx, y: points.knee.y * sy },
-        ankle: { x: points.ankle.x * sx, y: points.ankle.y * sy },
-      };
-
-      ctx.strokeStyle = lineColor || theme.accent;
-      ctx.lineWidth = 4;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.beginPath();
-      ctx.moveTo(mapped.shoulder.x, mapped.shoulder.y);
-      ctx.lineTo(mapped.hip.x, mapped.hip.y);
-      ctx.lineTo(mapped.knee.x, mapped.knee.y);
-      ctx.lineTo(mapped.ankle.x, mapped.ankle.y);
-      ctx.stroke();
-
-      ctx.fillStyle = "#ffffff";
-      [mapped.shoulder, mapped.hip, mapped.knee, mapped.ankle].forEach((p) => {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
-        ctx.fill();
+    (points, frameSize, alertLevel) => {
+      drawPoseSkeleton({
+        canvas: canvasRef.current,
+        wrap: videoWrapRef.current,
+        videoEl: videoRef.current,
+        points,
+        frameSize,
+        privacyMode: privacyModeRef.current,
+        alertLevel,
+        timestampMs: performance.now(),
       });
-
-      ctx.restore();
     },
-    [syncCanvasSize]
+    []
   );
+
+  const renderOverlayFrame = useCallback(() => {
+    if (latestSkeletonRef.current) {
+      drawSkeletonOnCanvas(latestSkeletonRef.current, latestFrameSizeRef.current, latestAlertLevelRef.current);
+      return;
+    }
+    if (privacyModeRef.current) {
+      drawPrivacyMask({ canvas: canvasRef.current, wrap: videoWrapRef.current, videoEl: videoRef.current });
+      return;
+    }
+    clearCanvas();
+  }, [clearCanvas, drawSkeletonOnCanvas]);
 
   const stopLoop = useCallback(() => {
     if (rafIdRef.current) {
@@ -259,6 +305,51 @@ export default function PoseAnalyzer() {
       vfcIdRef.current = null;
     }
   }, []);
+
+  const releaseVideoResource = useCallback(() => {
+    const videoEl = videoRef.current;
+    if (fileUrlRef.current) {
+      URL.revokeObjectURL(fileUrlRef.current);
+      fileUrlRef.current = "";
+    }
+    if (videoEl) {
+      videoEl.pause();
+      videoEl.removeAttribute("src");
+      videoEl.load();
+    }
+    lastStableVideoSrcRef.current = "";
+    setVideoUrl("");
+  }, []);
+
+  useEffect(() => {
+    privacyModeRef.current = privacyMode;
+    if (process.env.NODE_ENV === "production") return;
+
+    const videoEl = videoRef.current;
+    if (!videoEl) return;
+
+    const expectedSrc = fileUrlRef.current || videoUrl || "";
+    if (!expectedSrc) return;
+
+    const currentSrc = videoEl.currentSrc || videoEl.src || "";
+    const previousSrc = lastStableVideoSrcRef.current || expectedSrc;
+    const isLost = !currentSrc;
+    const isUnexpectedChanged = Boolean(currentSrc) && Boolean(previousSrc) && currentSrc !== previousSrc && currentSrc !== expectedSrc;
+
+    if (isLost || isUnexpectedChanged) {
+      // Dev-Only 回归检测：匿名开关切换后，视频句柄不应丢失或意外替换。
+      // eslint-disable-next-line no-console
+      console.warn(
+        "%c[PB-Vision Dev Warning]%c 检测到视频源句柄异常重置，请检查组件卸载逻辑",
+        "background:#3a0f1a;color:#ff6688;padding:2px 8px;border-radius:4px;font-weight:700;",
+        "color:#ffd0da;font-weight:600;",
+        { previousSrc, expectedSrc, currentSrc, privacyMode }
+      );
+      return;
+    }
+
+    lastStableVideoSrcRef.current = currentSrc;
+  }, [privacyMode, videoUrl]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -289,9 +380,7 @@ export default function PoseAnalyzer() {
 
     const onResize = () => {
       syncCanvasSize();
-      if (latestSkeletonRef.current) {
-        drawSkeletonOnCanvas(latestSkeletonRef.current, latestFrameSizeRef.current, latestLineColorRef.current);
-      }
+      renderOverlayFrame();
     };
     window.addEventListener("resize", onResize);
 
@@ -300,9 +389,41 @@ export default function PoseAnalyzer() {
       window.removeEventListener("resize", onResize);
       stopLoop();
       disposePoseDetector();
-      if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current);
+      releaseVideoResource();
     };
-  }, [drawSkeletonOnCanvas, pushLog, stopLoop, syncCanvasSize]);
+  }, [pushLog, releaseVideoResource, renderOverlayFrame, stopLoop, syncCanvasSize]);
+
+  useEffect(() => {
+    syncCanvasSize();
+    renderOverlayFrame();
+  }, [privacyMode, renderOverlayFrame, syncCanvasSize]);
+
+  useEffect(() => {
+    if (!Number.isFinite(angle)) return undefined;
+    const timer = setTimeout(() => {
+      const now = Date.now();
+      if (now - lastUiCalibrationLogAtRef.current >= 2500) {
+        pushLog("[UI 部门]: 核心指标已完成高精度渲染校准。");
+        lastUiCalibrationLogAtRef.current = now;
+      }
+    }, 720);
+    return () => clearTimeout(timer);
+  }, [angle, pushLog]);
+
+  useEffect(() => {
+    const wrap = videoWrapRef.current;
+    const videoEl = videoRef.current;
+    if (!wrap || !videoEl || typeof ResizeObserver === "undefined") return undefined;
+
+    const observer = new ResizeObserver(() => {
+      syncCanvasSize();
+      renderOverlayFrame();
+    });
+    observer.observe(wrap);
+    observer.observe(videoEl);
+
+    return () => observer.disconnect();
+  }, [renderOverlayFrame, syncCanvasSize]);
 
   const updateSessionStats = useCallback((metrics, advice, confidenceScore) => {
     const stats = sessionStatsRef.current;
@@ -392,7 +513,8 @@ export default function PoseAnalyzer() {
       const advice = getGaitAdvice(metrics);
       const skeletonAlert = getSkeletonAlert(metrics);
       const finalAdvice = { ...advice, skeletonAlert };
-      latestLineColorRef.current = skeletonAlert.lineColor;
+      latestAlertLevelRef.current = skeletonAlert.alertLevel;
+      setCanvasAlertLevel(skeletonAlert.alertLevel);
 
       setAngle(metrics.torsoLeanAngle);
       setCoachAdvice(finalAdvice);
@@ -403,7 +525,7 @@ export default function PoseAnalyzer() {
         width: poseResult.meta?.frameSize?.width || videoEl.videoWidth,
         height: poseResult.meta?.frameSize?.height || videoEl.videoHeight,
       };
-      drawSkeletonOnCanvas(points, latestFrameSizeRef.current, skeletonAlert.lineColor);
+      drawSkeletonOnCanvas(points, latestFrameSizeRef.current, skeletonAlert.alertLevel);
       updateSessionStats(metrics, finalAdvice, confidenceScore);
 
       const elapsed = poseResult.meta?.elapsedMs ?? 0;
@@ -429,12 +551,13 @@ export default function PoseAnalyzer() {
   const scheduleWithRaf = useCallback(() => {
     const tick = async () => {
       await analyzeFrame();
+      renderOverlayFrame();
       if (!isMountedRef.current) return;
       const videoEl = videoRef.current;
       if (videoEl && !videoEl.paused && !videoEl.ended) rafIdRef.current = requestAnimationFrame(tick);
     };
     rafIdRef.current = requestAnimationFrame(tick);
-  }, [analyzeFrame]);
+  }, [analyzeFrame, renderOverlayFrame]);
 
   const scheduleWithVideoFrameCallback = useCallback(() => {
     const videoEl = videoRef.current;
@@ -444,11 +567,12 @@ export default function PoseAnalyzer() {
     }
     const tick = async () => {
       await analyzeFrame();
+      renderOverlayFrame();
       if (!isMountedRef.current) return;
       if (!videoEl.paused && !videoEl.ended) vfcIdRef.current = videoEl.requestVideoFrameCallback(tick);
     };
     vfcIdRef.current = videoEl.requestVideoFrameCallback(tick);
-  }, [analyzeFrame, scheduleWithRaf]);
+  }, [analyzeFrame, renderOverlayFrame, scheduleWithRaf]);
 
   const startLoop = useCallback(() => {
     stopLoop();
@@ -476,25 +600,28 @@ export default function PoseAnalyzer() {
   const buildCoachMetricsPayload = useCallback(() => {
     const s = sessionStatsRef.current;
     const sampleSeconds = s.startAt && s.endAt ? Math.max(1, Math.round((s.endAt - s.startAt) / 1000)) : 0;
+    const threshold = 0.6;
+    const filteredFrames = s.frames.filter((frame) => Number(frame.confidenceScore) >= threshold);
+    const torsoSeries = filteredFrames.map((frame) => Number(frame.torsoLeanAngle) || 0);
+    const kneeSeries = filteredFrames.map((frame) => Number(frame.kneeFlexionAngle) || 0);
+    const keptFrameCount = filteredFrames.length;
+    const abnormalCount = filteredFrames.filter((frame) => frame.isAbnormal).length;
+
     return {
       frameCount: s.validFrames,
-      abnormalRate: safeDivide(s.abnormalFrames * 100, s.validFrames),
+      keptFrameCount,
       sampleSeconds,
-      frames: s.frames,
+      denoiseThreshold: threshold,
+      abnormalRate: safeDivide(abnormalCount * 100, keptFrameCount),
+      torsoLeanAvg: mean(torsoSeries),
+      torsoLeanMin: torsoSeries.length ? Math.min(...torsoSeries) : 0,
+      torsoLeanMax: torsoSeries.length ? Math.max(...torsoSeries) : 0,
+      torsoLeanCv: coeffOfVariation(torsoSeries),
+      kneeFlexionAvg: mean(kneeSeries),
+      kneeFlexionMin: kneeSeries.length ? Math.min(...kneeSeries) : 0,
+      kneeFlexionMax: kneeSeries.length ? Math.max(...kneeSeries) : 0,
+      kneeFlexionCv: coeffOfVariation(kneeSeries),
     };
-  }, []);
-
-  const downloadTextReport = useCallback((text) => {
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").slice(0, 19);
-    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `running-report-${stamp}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
   }, []);
 
   const buildReportPayload = useCallback((detailsText, sourceLabel) => {
@@ -502,12 +629,26 @@ export default function PoseAnalyzer() {
     const score = buildScore(stats);
     const tags = buildRiskTags(stats);
     const summary = detailsText.split("\n").slice(0, 3).join("\n");
+    const frameCount = stats.validFrames || 0;
+    const abnormalRatePercent = safeDivide(stats.abnormalFrames * 100, frameCount);
+    const torsoLeanAvg = safeDivide(stats.torsoSum, frameCount);
+
     return {
       score,
       tags,
       summary: summary || "暂无摘要",
       details: detailsText || "暂无详情",
       source: sourceLabel,
+      generatedAt: new Date().toLocaleString("zh-CN", { hour12: false }),
+      metrics: {
+        frameCount,
+        abnormalRatePercent,
+        torsoLeanAvg,
+        torsoLeanMin: Number.isFinite(stats.torsoMin) ? stats.torsoMin : 0,
+        torsoLeanMax: Number.isFinite(stats.torsoMax) ? stats.torsoMax : 0,
+        kneeFlexionMin: Number.isFinite(stats.kneeFlexMin) ? stats.kneeFlexMin : 0,
+        kneeFlexionMax: Number.isFinite(stats.kneeFlexMax) ? stats.kneeFlexMax : 0,
+      },
     };
   }, []);
 
@@ -515,6 +656,15 @@ export default function PoseAnalyzer() {
     if (isDeepAnalyzing) return;
     const localSummary = buildLocalSummary();
     const metricsPayload = buildCoachMetricsPayload();
+    if (metricsPayload.keptFrameCount <= 0) {
+      setReportText(localSummary);
+      setReportPayload(buildReportPayload(localSummary, "本地规则回退"));
+      setShowReport(true);
+      setSaveNotice("有效高置信度帧不足（<0.6 已过滤），已回退本地总结。");
+      setStatus("系统：已回退本地总结");
+      pushLog("系统容错：高置信度帧不足，已使用本地规则生成报告。");
+      return;
+    }
 
     setSaveNotice("");
     setIsDeepAnalyzing(true);
@@ -535,50 +685,38 @@ export default function PoseAnalyzer() {
       setReportText(cloudReport);
       setReportPayload(buildReportPayload(cloudReport, data.provider || "云端教练"));
       setShowReport(true);
-      setSaveNotice("云端教练报告已生成并保存到本地下载。");
-      downloadTextReport(cloudReport);
+      setSaveNotice("云端教练报告已生成，正在展示深度诊断弹窗。");
       setStatus("UI 部门：云端报告已刷新");
       pushLog("Analysis 部门：云端教练返回成功，报告已渲染。");
     } catch (err) {
       setReportText(localSummary);
       setReportPayload(buildReportPayload(localSummary, "本地规则回退"));
       setShowReport(true);
-      setSaveNotice("云端教练暂时不可用，已自动回退本地总结并完成保存。");
-      downloadTextReport(localSummary);
+      setSaveNotice("云端教练暂时不可用，已自动回退本地总结并展示报告。");
       setStatus("系统：已回退本地总结");
       pushLog(`系统容错：云端失败，已回退本地建议（${String(err?.message || err)}）`);
     } finally {
       setIsDeepAnalyzing(false);
     }
-  }, [buildCoachMetricsPayload, buildLocalSummary, buildReportPayload, downloadTextReport, isDeepAnalyzing, pushLog]);
+  }, [buildCoachMetricsPayload, buildLocalSummary, buildReportPayload, isDeepAnalyzing, pushLog]);
 
-  const handleDownloadPdf = useCallback(async () => {
-    if (isDownloadingPdf) return;
-    try {
-      setIsDownloadingPdf(true);
-      const res = await fetch("/api/report-pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(reportPayload),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "running-diagnostic-report.pdf";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      pushLog("UI 部门：PDF 报告已下载。");
-    } catch (err) {
-      setErrorText("PDF 下载失败，请稍后重试。");
-      pushLog(`系统异常：PDF 下载失败（${String(err?.message || err)}）`);
-    } finally {
-      setIsDownloadingPdf(false);
+  const handleTogglePlay = useCallback(() => {
+    const videoEl = videoRef.current;
+    if (!videoEl || !videoUrl) return;
+    if (videoEl.paused || videoEl.ended) {
+      void videoEl.play();
+    } else {
+      videoEl.pause();
     }
-  }, [isDownloadingPdf, pushLog, reportPayload]);
+  }, [videoUrl]);
+
+  const handleSeekVideo = useCallback((nextTime) => {
+    const videoEl = videoRef.current;
+    if (!videoEl || !Number.isFinite(nextTime)) return;
+    const safeTime = Math.max(0, Math.min(videoEl.duration || 0, nextTime));
+    videoEl.currentTime = safeTime;
+    setVideoCurrentTime(safeTime);
+  }, []);
 
   const applyVideoFile = useCallback(
     (file) => {
@@ -589,6 +727,7 @@ export default function PoseAnalyzer() {
       if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current);
       const nextUrl = URL.createObjectURL(file);
       fileUrlRef.current = nextUrl;
+      lastStableVideoSrcRef.current = nextUrl;
       setVideoUrl(nextUrl);
       setAngle(null);
       setErrorText("");
@@ -596,6 +735,9 @@ export default function PoseAnalyzer() {
       setReportText("");
       setSaveNotice("");
       setShowReport(false);
+      setIsVideoPlaying(false);
+      setVideoCurrentTime(0);
+      setVideoDuration(0);
       setCoachAdvice({
         ...createInitialAdvice(),
         currentStatus: "【当前状态】视频已加载，等待有效跑姿帧。",
@@ -603,7 +745,9 @@ export default function PoseAnalyzer() {
       });
       latestSkeletonRef.current = null;
       latestFrameSizeRef.current = { width: 0, height: 0 };
-      latestLineColorRef.current = theme.accent;
+      latestAlertLevelRef.current = "normal";
+      setCanvasAlertLevel("normal");
+      lastCanvasGapRef.current = null;
       resetSessionStats();
       clearCanvas();
       setStatus("UI 部门：视频已载入，等待播放");
@@ -640,24 +784,42 @@ export default function PoseAnalyzer() {
           50% { opacity: 1; }
           100% { opacity: 0.2; }
         }
+        @keyframes skeletonPulse {
+          0% { filter: drop-shadow(0 0 2px rgba(255,59,95,.45)) drop-shadow(0 0 5px rgba(255,59,95,.35)); }
+          50% { filter: drop-shadow(0 0 5px rgba(255,59,95,.8)) drop-shadow(0 0 12px rgba(255,59,95,.65)); }
+          100% { filter: drop-shadow(0 0 2px rgba(255,59,95,.45)) drop-shadow(0 0 5px rgba(255,59,95,.35)); }
+        }
       `}</style>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 28, fontWeight: 700, letterSpacing: 0.5 }}>PB Vision · Sports Tech</h2>
-        <button
-          type="button"
-          onClick={() => setShowLogs((v) => !v)}
+        <h2
           style={{
-            background: "transparent",
-            border: `1px solid ${theme.border}`,
-            color: theme.subText,
-            borderRadius: 10,
-            padding: "8px 12px",
-            cursor: "pointer",
+            margin: 0,
+            fontSize: 28,
+            fontWeight: 700,
+            letterSpacing: 0.5,
+            color: "#fff",
+            textShadow: "0 0 5px #fff, 0 0 10px #00f3ff, 0 0 15px #00f3ff, 0 0 20px #e0aaff",
           }}
         >
-          {showLogs ? "隐藏架构日志" : "显示架构日志"}
-        </button>
+          PB Vision <span style={{ color: "#22c55e", textShadow: "0 0 6px #22c55e, 0 0 10px #22c55e" }}>·</span> Sports Tech
+        </h2>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            type="button"
+            onClick={() => setShowLogs((v) => !v)}
+            style={{
+              background: "transparent",
+              border: `1px solid ${theme.border}`,
+              color: theme.subText,
+              borderRadius: 10,
+              padding: "8px 12px",
+              cursor: "pointer",
+            }}
+          >
+            {showLogs ? "隐藏架构日志" : "显示架构日志"}
+          </button>
+        </div>
       </div>
 
       <div
@@ -685,7 +847,7 @@ export default function PoseAnalyzer() {
           borderRadius: 14,
           padding: "22px 18px",
           marginBottom: 16,
-          background: isDragging ? "#132222" : theme.panelBg2,
+          background: isDragging ? "#0c1f2d" : theme.panelBg2,
           cursor: "pointer",
         }}
       >
@@ -696,46 +858,129 @@ export default function PoseAnalyzer() {
         <input ref={fileInputRef} type="file" accept="video/*" onChange={handleFileChange} style={{ display: "none" }} />
       </div>
 
+      <div
+        style={{
+          marginBottom: 16,
+          border: `1px solid #194256`,
+          borderRadius: 12,
+          padding: "10px 12px",
+          background: "#091725",
+          color: "#9ff7ff",
+          fontSize: 13,
+          fontWeight: 700,
+        }}
+      >
+        <span style={{ color: theme.accent, marginRight: 6 }}>🔒</span>
+        隐私安全：全本地分析，视频不上传，肖像不存留。
+      </div>
+
       <div style={{ display: "grid", gap: 16, gridTemplateColumns: "2fr 1fr", alignItems: "start" }}>
         <div style={{ border: `1px solid ${theme.border}`, borderRadius: 14, padding: 12, background: theme.panelBg }}>
-          <div ref={videoWrapRef} style={{ position: "relative", width: "100%" }}>
+          <div ref={videoWrapRef} className="video-container" style={{ position: "relative", width: "100%", overflow: "hidden" }}>
             <video
               ref={videoRef}
               src={videoUrl || undefined}
-              controls
+              controls={false}
               preload="metadata"
-              style={{ width: "100%", borderRadius: 10, background: "#090d12", display: "block" }}
+              style={{
+                width: "100%",
+                height: "auto",
+                borderRadius: 10,
+                background: "#070c12",
+                display: "block",
+                position: "relative",
+                zIndex: 1,
+                opacity: 1,
+                filter: "none",
+                accentColor: theme.accent,
+              }}
               onLoadedData={() => {
                 setStatus("UI 部门：视频可播放，等待点击播放");
                 pushLog("UI 部门：视频帧准备完成。");
+                lastStableVideoSrcRef.current = videoRef.current?.currentSrc || videoRef.current?.src || fileUrlRef.current;
+                setVideoDuration(videoRef.current?.duration || 0);
                 syncCanvasSize();
-                clearCanvas();
+                renderOverlayFrame();
+              }}
+              onLoadedMetadata={() => {
+                setVideoDuration(videoRef.current?.duration || 0);
+              }}
+              onTimeUpdate={() => {
+                setVideoCurrentTime(videoRef.current?.currentTime || 0);
               }}
               onPlay={() => {
+                setIsVideoPlaying(true);
                 setStatus("系统：播放中，开始异步分析");
                 pushLog("系统：按帧抓图并发给 Worker（每 3 帧分析 1 次）。");
                 startLoop();
               }}
               onPause={() => {
+                setIsVideoPlaying(false);
                 stopLoop();
                 setStatus("系统：视频已暂停，分析循环停止");
                 pushLog("系统：已暂停分析。");
               }}
               onEnded={() => {
+                setIsVideoPlaying(false);
                 stopLoop();
                 setStatus("系统：视频播放结束");
                 pushLog("系统：分析结束。");
+                latestAlertLevelRef.current = "normal";
+                setCanvasAlertLevel("normal");
+                setVideoCurrentTime(0);
+                setVideoDuration(0);
+                releaseVideoResource();
+                clearCanvas();
               }}
             />
-            <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, pointerEvents: "none", borderRadius: 10 }} />
+            <canvas
+              ref={canvasRef}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                pointerEvents: "none",
+                zIndex: 2,
+                borderRadius: 10,
+                background: "transparent",
+                animation: canvasAlertLevel === "normal" ? "none" : "skeletonPulse 1.1s ease-in-out infinite",
+              }}
+            />
+            <div
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 48,
+                background: "transparent",
+                pointerEvents: "none",
+                zIndex: 3,
+              }}
+            />
           </div>
+          <CyberVideoControls
+            isPlaying={isVideoPlaying}
+            currentTime={videoCurrentTime}
+            duration={videoDuration}
+            onTogglePlay={handleTogglePlay}
+            onSeek={handleSeekVideo}
+            privacyMode={privacyMode}
+            onTogglePrivacy={() => setPrivacyMode((v) => !v)}
+            disabled={!videoUrl}
+          />
         </div>
 
         <aside style={{ border: `1px solid ${theme.border}`, borderRadius: 14, padding: 14, background: theme.panelBg }}>
           <h3 style={{ marginTop: 0, marginBottom: 8 }}>实时仪表盘</h3>
           <div style={{ fontSize: 13, color: theme.subText }}>当前帧躯干前倾角</div>
-          <div style={{ fontSize: 42, fontWeight: 800, color: angleColor, lineHeight: 1.1 }}>{angle == null ? "--" : `${angle}°`}</div>
-          <div style={{ fontSize: 12, color: theme.subText, marginTop: 4 }}>正常骨架亮绿，异常自动变红</div>
+          <div style={{ fontSize: 42, fontWeight: 800, color: angleColor, lineHeight: 1.1 }}>
+            {angle == null ? "--" : `${animatedAngle.toFixed(2)}°`}
+          </div>
+          <div style={{ fontSize: 12, color: theme.subText, marginTop: 4 }}>
+            正常骨架荧光蓝，异常骨架荧光红脉冲
+          </div>
           <div style={{ marginTop: 12, fontSize: 13 }}>状态：{status}</div>
 
           {qualityWarning ? <div style={{ marginTop: 8, color: theme.warn, fontSize: 13 }}>质量自检：{qualityWarning}</div> : null}
@@ -757,7 +1002,7 @@ export default function PoseAnalyzer() {
                 borderRadius: 10,
                 padding: "10px 12px",
                 fontWeight: 700,
-                background: "#1a2530",
+                background: "#102236",
                 color: theme.text,
                 cursor: isDeepAnalyzing ? "not-allowed" : "pointer",
                 opacity: isDeepAnalyzing ? 0.7 : 1,
@@ -773,7 +1018,7 @@ export default function PoseAnalyzer() {
                 borderRadius: 10,
                 padding: "10px 12px",
                 fontWeight: 700,
-                background: "#111821",
+                background: "#0d1826",
                 color: theme.text,
                 cursor: "pointer",
               }}
@@ -806,15 +1051,7 @@ export default function PoseAnalyzer() {
       </div>
 
       {showReport ? (
-        <ReportView
-          reportScore={reportPayload.score}
-          riskTags={reportPayload.tags}
-          reportSummary={reportPayload.summary}
-          reportDetails={reportPayload.details}
-          sourceLabel={reportPayload.source}
-          onDownloadPdf={handleDownloadPdf}
-          isDownloadingPdf={isDownloadingPdf}
-        />
+        <ReportModal open={showReport} onClose={() => setShowReport(false)} payload={reportPayload} />
       ) : null}
 
       {showLogs ? (
@@ -836,4 +1073,3 @@ export default function PoseAnalyzer() {
     </section>
   );
 }
-

@@ -436,3 +436,187 @@ GLM：
   - Windows: `copy .env.example .env.local`
   - macOS/Linux: `cp .env.example .env.local`
 - 然后填入真实 API Key。
+
+## 23. 隐私安全专项升级（v2）
+### 23.1 前端隐私提示
+- 上传区下方新增隐私徽章：`隐私安全：全本地分析，视频不上传，肖像不存留。`
+- 作用：让用户在上传前就知道数据边界，降低隐私顾虑。
+
+### 23.2 匿名模式（Privacy Mode）
+文件：`src/ui/PoseAnalyzer.jsx`
+1. 新增“匿名模式”开关。
+2. 开启后：不再把视频设为透明，而是改为 Canvas 黑幕模式（先画纯黑，再画骨架）。
+3. Canvas 只覆盖视频画面区域，底部预留控制栏安全区（约 52px），保证原生播放/暂停/全屏控件可点击。
+4. 正常骨架线在匿名模式下切换为赛博蓝（`#00e5ff`），异常仍保留红色告警。
+5. 分析链路不变：Logic/Analysis 仍照常运行，UI 仅改变可视层。
+
+### 23.3 内存回收机制
+文件：`src/ui/PoseAnalyzer.jsx`
+1. 新增 `releaseVideoResource()`：
+   - `URL.revokeObjectURL(...)` 释放本地对象 URL。
+   - 清理 `<video>` 的 `src` 并 `load()`，避免资源残留。
+2. 触发时机：
+   - `video.onended`
+   - 组件卸载（`useEffect` cleanup）
+
+### 23.4 云端接口脱敏与白名单
+文件：`src/pages/api/coach.js`
+1. 前端上报给 `/api/coach` 的数据改为“纯数字统计”对象（如帧数、均值、CV、异常率等），不再发送逐帧数组。
+2. 后端新增敏感字段拦截：若 payload 出现 `base64/snapshot/face/identity/...` 等字段，直接拒绝。
+3. 后端仅保留白名单数字字段并清洗（数值化、范围裁剪、四舍五入）后，再组装 Prompt 调用 DeepSeek/GLM。
+
+### 23.5 去噪策略（0.6 阈值）
+1. 前端先按 `confidenceScore >= 0.6` 过滤低置信度帧。
+2. 仅用高置信度帧计算并上报统计指标，降低光照抖动导致的误报。
+3. 若高置信度帧不足，自动回退本地静态总结，避免用户体验中断。
+
+## 24. 视觉美化专项升级（Neon Blue Theme）
+### 24.1 新增骨架渲染模块
+- 新增文件：`src/ui/PoseCanvas.jsx`
+- 职责：
+  1. 统一管理 Canvas 尺寸同步。
+  2. 统一管理骨架绘制样式（正常/异常）。
+  3. 在匿名模式下先绘制黑幕，再绘制骨架。
+- 默认骨架色：`#00f3ff`（霓虹荧光蓝）。
+
+### 24.2 异常状态视觉规则
+1. 当 analysis 层返回 `alertLevel !== "normal"` 时：
+   - 骨架线切换为荧光红 `#ff3b5f`。
+   - 启用发光（shadow blur）与轻微脉冲动画（Pulse）。
+2. 这样不会只是“平面变红”，而是明确的动态告警效果。
+
+### 24.3 UI 配色统一
+1. PoseAnalyzer 全局主题 `accent` 改为荧光蓝：`#00f3ff`。
+2. 上传区隐私提示加入蓝色锁图标，Loading 文案与重点提示统一蓝色系。
+3. 卡片背景整体调暗，提升荧光色对比度与科技感。
+
+### 24.4 PDF 报告配色对齐
+- 文件：`src/pages/api/report-pdf.js`
+- 诊断分数主色从绿色替换为荧光蓝：`#00f3ff`。
+
+### 24.5 报告卡片配色对齐
+- 文件：`src/ui/ReportView.jsx`
+- 综合评分、按钮、背景层次同步到 Neon Blue + 深色卡片方案。
+
+## 25. 全屏赛博报告模态框（Cyber-Report Modal）
+### 25.1 新增组件
+- 新增：`src/ui/ReportModal.jsx`
+- 角色：只负责报告展示与打印，不参与分析计算。
+
+### 25.2 视觉规范
+1. 全屏深色背景：`#0f172a`。
+2. 模态框边框：荧光蓝 `#00f3ff` 细边框。
+3. 右上角关闭按钮：荧光红。
+4. 得分区：荧光蓝圆环 + 分数动态计数。
+5. 核心风险区：红色发光风险卡片（Pulse）。
+
+### 25.3 交互变更
+1. 点击“一键保存报告”后：
+   - 不再自动下载文本/PDF。
+   - 直接弹出全屏赛博报告 Modal。
+2. Modal 底部保留“打印 / 保存”按钮，调用 `window.print()`。
+
+### 25.4 文本清洗
+- 在渲染教练建议前，对 DeepSeek/GLM 返回文本执行 Markdown 轻清洗：
+  - 去标题符号（#）
+  - 去粗体标记（**）
+  - 规范列表符号（-/*）
+- 再按段落展示为可读文本块。
+
+### 25.5 打印优化
+- `ReportModal.jsx` 内置：
+  - `@media print { .no-print { display: none; } }`
+- 打印时隐藏关闭/操作按钮，只保留报告主体内容。
+
+### 25.6 依赖
+- 新增依赖：`lucide-react`（用于教练建议区图标）。
+
+## 26. 报告压缩策略（精英效率版）
+文件：`src/pages/api/coach.js`
+1. Prompt 强约束：
+   - 总字数 <= 500 字。
+   - 技术诊断仅 2 个最严重问题。
+   - 训练处方仅 2 个动作，单条 <= 30 字。
+   - 常模对比必须用“高于/低于精英常模X%”短语。
+   - 禁止开场白、客套话、结语。
+2. 后端硬闸门：
+   - 新增 `enforceMaxChars()`，对模型返回再做二次截断，确保最终返回不超过 500 字。
+
+### 25.7 打印单页优先优化（ReportModal）
+文件：`src/ui/ReportModal.jsx`
+1. 打印时切换到专用布局（`print-only`）：
+   - 第一行双列：技术诊断 | 训练处方
+   - 第二行双列：常模对比 | 复测目标
+2. 紧凑排版：
+   - 降低标题字号（打印态 20px）
+   - 缩小模块 margin/padding（`print-compact`）
+3. 隐藏冗余：
+   - 隐藏关闭按钮、底部交互按钮、顶部装饰线（`no-print`）
+4. 防分页切断：
+   - 核心模块统一加 `break-inside: avoid; page-break-inside: avoid;`（`print-block`）
+
+### 25.8 匿名模式句柄保护修复（稳定播放）
+文件：`src/ui/PoseAnalyzer.jsx`
+1. 新增 `privacyModeRef`，匿名开关只改 UI 渲染策略，不参与组件生命周期依赖。
+2. `syncCanvasSize` / `drawSkeletonOnCanvas` 改为读取 `privacyModeRef.current`，避免匿名切换触发初始化 useEffect 的 cleanup。
+3. `URL.revokeObjectURL` 仍只在真实释放场景执行（视频结束或组件最终卸载），切换匿名开关不会释放视频 Blob URL。
+4. Worker 不重启：匿名开关期间仅改变 Canvas 黑幕与骨架绘制，视频播放可持续不中断。
+
+### 25.9 Dev-Only 句柄回归检测
+文件：`src/ui/PoseAnalyzer.jsx`
+1. 在 `privacyMode` 切换的 `useEffect` 中新增句柄校验：
+   - 若 `video.currentSrc` 丢失或发生非预期变更，输出高亮 `console.warn`：
+   - 『检测到视频源句柄异常重置，请检查组件卸载逻辑』。
+2. 该检测仅在开发环境生效（`NODE_ENV !== production`）。
+3. 检测结果只输出到浏览器控制台，不写入“架构日志”面板，避免污染生产视图。
+
+### 25.10 匿名模式控件恢复修复（UI 紧急）
+文件：`src/ui/PoseCanvas.jsx`、`src/ui/PoseAnalyzer.jsx`
+1. Canvas 尺寸改为按视频“画面内容高度”计算（基于 `videoWidth/videoHeight`），不再覆盖底部 controls 区域。
+2. Canvas 保持 `pointer-events: none`，并设置高于视频的 `z-index`，点击可穿透到原生播放条。
+3. 匿名黑幕改为 Canvas 每帧绘制：
+   - 先 `fillRect(0,0,w,h)` 纯黑遮罩
+   - 再叠加荧光蓝骨架
+4. 视频标签不再用 CSS 隐藏（`opacity` 固定为 1），句柄持续有效，切换匿名模式不会中断播放与分析。
+
+### 25.11 容器隔离方案（控件可点击保障）
+文件：`src/ui/PoseAnalyzer.jsx`、`src/ui/PoseCanvas.jsx`
+1. 视频容器采用相对定位并 `overflow: hidden`，视频保持 `width:100%/height:auto/display:block`。
+2. Canvas 不再按整容器全高覆盖，而是按视频真实画面高度裁剪（不含底部控制条）。
+3. 引入 `ResizeObserver` 监听容器和视频尺寸变化，实时同步 Canvas 尺寸。
+4. 匿名模式黑幕由 Canvas 每帧绘制（`fillRect`）实现，Worker 不重启。
+5. 开发环境输出自检日志：
+   - `[UI 监控]: 正在尝试避开控件区，当前 Canvas 高度比视频容器矮 X 像素。`
+
+### 25.12 自定义赛博控件（Custom Cyber Controls）
+文件：`src/ui/CyberVideoControls.jsx`、`src/ui/PoseAnalyzer.jsx`
+1. 视频原生控件已禁用：`<video controls={false} />`。
+2. 新增荧光蓝自定义控制条：
+   - 播放/暂停按钮（Lucide 图标）
+   - 可点击进度条（通过 `video.currentTime` 跳转）
+   - 当前时间 / 总时长显示
+3. 匿名模式开关已集成到底部控制条。
+4. 由于不再依赖原生 controls，Canvas 与视频层级冲突问题被结构性规避；Worker 生命周期不受影响。
+
+### 25.13 报告输出策略调整（放弃打印）
+文件：`src/ui/ReportModal.jsx`、`src/ui/PoseAnalyzer.jsx`
+1. 已移除报告弹窗中的“打印/保存”按钮。
+2. 已删除 `@media print` 相关样式与打印专用布局代码，减少冗余。
+3. 报告底部新增提示：
+   - `💡 建议：您可以直接截图保存这份诊断报告，或随时在应用中查看。`
+4. 弹窗滚动体验增强：
+   - `scroll-behavior: smooth`
+   - `-webkit-overflow-scrolling: touch`
+   - `overscroll-behavior: contain`
+   - 赛博风滚动条样式（桌面 WebKit）
+
+### 25.14 仪表盘数字滚动动画（高精度渲染）
+文件：`src/ui/PoseAnalyzer.jsx`、`src/ui/ReportModal.jsx`
+1. 核心数值采用 `easeOutExpo` 动画（约 700~780ms）：
+   - 躯干前倾角（仪表盘）
+   - 报告分数与核心指标（Modal）
+2. 数值渲染统一保留两位小数（角度/比例类指标），滚动中间值同样保持一致格式。
+3. 分数滚动与环形进度条同步增长，保持荧光蓝发光轨迹。
+4. 架构日志联动：
+   - `[UI 部门]: 核心指标已完成高精度渲染校准。`
+   - 采用节流策略，避免日志刷屏。

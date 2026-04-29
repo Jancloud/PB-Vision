@@ -6,7 +6,7 @@ html,
 body {
   margin: 0;
   padding: 0;
-  background: #0b0f14;
+  background: #070d14;
   color: #e8f0fa;
   font-family: "Rajdhani", "Noto Sans SC", "Microsoft YaHei", sans-serif;
 }
@@ -21,10 +21,10 @@ body {
 }
 
 *::-webkit-scrollbar-track {
-  background: #111821;
+  background: #0b131d;
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #2a3644;
+  background: #20425a;
   border-radius: 10px;
 }
