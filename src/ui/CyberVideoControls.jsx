@@ -20,6 +20,7 @@ export default function CyberVideoControls({
   onTogglePrivacy,
   disabled = false,
 }) {
+  const TOUCH_TARGET = 44;
   const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
   const progress = safeDuration ? Math.min(100, Math.max(0, (currentTime / safeDuration) * 100)) : 0;
 
@@ -53,19 +54,33 @@ export default function CyberVideoControls({
         }}
         style={{
           position: "relative",
-          height: 6,
+          height: 8,
+          padding: "18px 0",
           borderRadius: 999,
-          background: "#0f2434",
+          background: "transparent",
           cursor: disabled ? "not-allowed" : "pointer",
         }}
       >
         <div
           style={{
             position: "absolute",
-            top: 0,
+            top: "50%",
             left: 0,
-            height: "100%",
+            right: 0,
+            height: 8,
+            transform: "translateY(-50%)",
+            borderRadius: 999,
+            background: "#0f2434",
+          }}
+        />
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: 0,
+            height: 8,
             width: `${progress}%`,
+            transform: "translateY(-50%)",
             borderRadius: 999,
             background: "linear-gradient(90deg, #00f3ff, #66fbff)",
             boxShadow: "0 0 10px rgba(0,243,255,.55)",
@@ -80,8 +95,8 @@ export default function CyberVideoControls({
             disabled={disabled}
             onClick={onTogglePlay}
             style={{
-              width: 34,
-              height: 34,
+              width: TOUCH_TARGET,
+              height: TOUCH_TARGET,
               border: "1px solid #00f3ff",
               borderRadius: 8,
               background: "#0a2033",
@@ -92,7 +107,7 @@ export default function CyberVideoControls({
               cursor: disabled ? "not-allowed" : "pointer",
             }}
           >
-            {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+            {isPlaying ? <Pause size={18} /> : <Play size={18} />}
           </button>
           <div style={{ color: "#8fc9e3", fontSize: 12, minWidth: 94 }}>
             {formatTime(currentTime)} / {formatTime(safeDuration)}
@@ -105,7 +120,8 @@ export default function CyberVideoControls({
           style={{
             border: `1px solid ${privacyMode ? "#00f3ff" : "#2b465f"}`,
             borderRadius: 8,
-            padding: "6px 10px",
+            minHeight: TOUCH_TARGET,
+            padding: "10px 14px",
             background: privacyMode ? "#0b2b35" : "#0c1622",
             color: privacyMode ? "#00f3ff" : "#8fc9e3",
             display: "inline-flex",
