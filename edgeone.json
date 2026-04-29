@@ -1,0 +1,10 @@
+﻿{
+  "name": "pb-vision",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "nodeVersion": "20.18.0",
+  "nodeFunctionsConfig": {
+    "maxDuration": 60
+  }
+}

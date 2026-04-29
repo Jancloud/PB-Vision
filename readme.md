@@ -620,3 +620,54 @@ GLM：
 4. 架构日志联动：
    - `[UI 部门]: 核心指标已完成高精度渲染校准。`
    - 采用节流策略，避免日志刷屏。
+
+## 26. EdgeOne 部署指南（中国大陆优先）
+### 26.1 部署目标
+把当前 Next.js 项目部署到 EdgeOne Pages，利用大陆就近节点提升访问稳定性；不改 UI/Logic/Analysis 三层业务代码。
+
+### 26.2 已新增部署配置
+文件：`edgeone.json`
+```json
+{
+  "name": "pb-vision",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "nodeVersion": "20.18.0",
+  "nodeFunctionsConfig": {
+    "maxDuration": 60
+  }
+}
+```
+说明：
+1. `nodeFunctionsConfig.maxDuration=60`：给 `/api/coach` 预留更稳的模型调用时间，避免云函数过早超时。
+2. 该配置只管理部署，不侵入业务模块，符合“单一职责”和“极致解耦”。
+
+### 26.3 控制台发布步骤（推荐）
+1. 打开 EdgeOne Pages 控制台，创建新项目。
+2. 选择「从 Git 仓库导入」，连接 GitHub 并选择仓库：`Jancloud/PB-Vision`。
+3. 框架选择 `Next.js`（或自动识别）。
+4. 构建设置保持默认；若未自动识别，则填：
+   - Install Command: `npm ci`
+   - Build Command: `npm run build`
+   - Output Directory: `.next`
+5. 在项目环境变量中二选一配置：
+   - DeepSeek：
+     - `COACH_PROVIDER=deepseek`
+     - `DEEPSEEK_API_KEY=你的密钥`
+     - `DEEPSEEK_MODEL=deepseek-chat`（可选）
+   - GLM：
+     - `COACH_PROVIDER=glm`
+     - `GLM_API_KEY=你的密钥`
+     - `GLM_MODEL=glm-4-flash`（可选）
+6. 点击部署，等待构建完成。
+
+### 26.4 上线后 3 项自检
+1. 打开首页上传视频，确认骨架叠层与仪表盘实时更新。
+2. 点击「一键保存报告」，确认云端建议正常返回（若失败应自动回退本地建议）。
+3. 在浏览器网络面板确认只请求 `/api/coach` 数字指标，不上传视频帧或个人图像数据。
+
+### 26.5 常见问题
+1. 模型接口报错：先查环境变量名是否与 `.env.example` 完全一致（包括大小写）。
+2. 国内偶发慢：优先使用 DeepSeek 国内可达域名；并确保 `public/mediapipe` 静态模型已随仓库发布。
+3. 部署成功但页面空白：检查构建日志中 Node 版本，建议使用 `20.x`。
