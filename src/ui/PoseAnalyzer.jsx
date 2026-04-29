@@ -11,9 +11,11 @@ import {
   getGaitAdvice,
   getSkeletonAlert,
 } from "../analysis/runningPhysics";
+import ReportView from "./ReportView";
 
 const ANALYZE_EVERY_NTH_FRAME = 3;
 const ABNORMAL_LOG_COOLDOWN_MS = 1500;
+const QUALITY_WARN_THRESHOLD = 70;
 
 const theme = {
   panelBg: "#151b22",
@@ -70,21 +72,45 @@ function createInitialStats() {
     backLeanFrames: 0,
     overLeanFrames: 0,
     torsoSum: 0,
-    torsoSqSum: 0,
     torsoMin: Infinity,
     torsoMax: -Infinity,
-    kneeFlexSum: 0,
-    kneeFlexSqSum: 0,
     kneeFlexMin: Infinity,
     kneeFlexMax: -Infinity,
     startAt: null,
     endAt: null,
+    frames: [],
   };
 }
 
-function safeDivide(numerator, denominator) {
-  if (!denominator) return 0;
-  return numerator / denominator;
+function mean(arr) {
+  if (!arr.length) return 0;
+  return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+
+function safeDivide(a, b) {
+  if (!b) return 0;
+  return a / b;
+}
+
+function buildRiskTags(stats) {
+  const tags = [];
+  if (stats.stiffKneeFrames > 0) tags.push("落地冲击过大");
+  if (stats.backLeanFrames > 0) tags.push("躯干后仰趋势");
+  if (stats.overLeanFrames > 0) tags.push("躯干不稳定");
+  return tags.slice(0, 3);
+}
+
+function buildScore(stats) {
+  if (stats.validFrames === 0) return 0;
+  const abnormalRate = safeDivide(stats.abnormalFrames, stats.validFrames);
+  const stiffRate = safeDivide(stats.stiffKneeFrames, stats.validFrames);
+  const torsoRange = stats.torsoMax - stats.torsoMin;
+
+  let score = 100;
+  score -= abnormalRate * 40;
+  score -= stiffRate * 25;
+  score -= Math.min(20, torsoRange * 0.8);
+  return Math.max(0, Math.round(score));
 }
 
 export default function PoseAnalyzer() {
@@ -107,6 +133,7 @@ export default function PoseAnalyzer() {
   const [videoUrl, setVideoUrl] = useState("");
   const [status, setStatus] = useState("等待上传视频");
   const [errorText, setErrorText] = useState("");
+  const [qualityWarning, setQualityWarning] = useState("");
   const [logs, setLogs] = useState([]);
   const [angle, setAngle] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -116,6 +143,15 @@ export default function PoseAnalyzer() {
   const [reportText, setReportText] = useState("");
   const [saveNotice, setSaveNotice] = useState("");
   const [isDeepAnalyzing, setIsDeepAnalyzing] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [reportPayload, setReportPayload] = useState({
+    score: 0,
+    tags: [],
+    summary: "",
+    details: "",
+    source: "本地规则",
+  });
 
   const pushLog = useCallback((text) => {
     setLogs((prev) => {
@@ -268,27 +304,30 @@ export default function PoseAnalyzer() {
     };
   }, [drawSkeletonOnCanvas, pushLog, stopLoop, syncCanvasSize]);
 
-  const updateSessionStats = useCallback((metrics, advice) => {
+  const updateSessionStats = useCallback((metrics, advice, confidenceScore) => {
     const stats = sessionStatsRef.current;
     const now = Date.now();
     if (!stats.startAt) stats.startAt = now;
     stats.endAt = now;
-
     stats.validFrames += 1;
     stats.torsoSum += metrics.torsoLeanAngle;
-    stats.torsoSqSum += metrics.torsoLeanAngle * metrics.torsoLeanAngle;
     stats.torsoMin = Math.min(stats.torsoMin, metrics.torsoLeanAngle);
     stats.torsoMax = Math.max(stats.torsoMax, metrics.torsoLeanAngle);
-
-    stats.kneeFlexSum += metrics.kneeFlexionAngle;
-    stats.kneeFlexSqSum += metrics.kneeFlexionAngle * metrics.kneeFlexionAngle;
     stats.kneeFlexMin = Math.min(stats.kneeFlexMin, metrics.kneeFlexionAngle);
     stats.kneeFlexMax = Math.max(stats.kneeFlexMax, metrics.kneeFlexionAngle);
-
     if (advice.isAbnormal) stats.abnormalFrames += 1;
     if (advice.issueTag === "stiff_knee") stats.stiffKneeFrames += 1;
     if (advice.issueTag === "back_lean") stats.backLeanFrames += 1;
     if (advice.issueTag === "over_lean" || advice.issueTag === "over_lean_severe") stats.overLeanFrames += 1;
+
+    if (stats.frames.length < 1200) {
+      stats.frames.push({
+        torsoLeanAngle: metrics.torsoLeanAngle,
+        kneeFlexionAngle: metrics.kneeFlexionAngle,
+        confidenceScore: Number(confidenceScore.toFixed(4)),
+        isAbnormal: advice.isAbnormal,
+      });
+    }
   }, []);
 
   const analyzeFrame = useCallback(async () => {
@@ -315,6 +354,14 @@ export default function PoseAnalyzer() {
         setStatus("Logic 部门：识别未通过，保持上一帧结果");
         setErrorText(poseResult.error.message);
         pushLog(`Logic 部门提示：${poseResult.error.message}`);
+
+        if (poseResult.error.code === "LOW_CONFIDENCE") {
+          const lowCount = poseResult.error?.details?.lowConfidenceJoints?.length || 0;
+          const completeness = ((4 - lowCount) / 4) * 100;
+          if (completeness < QUALITY_WARN_THRESHOLD) {
+            setQualityWarning("视频质量不佳（人体完整度低于 70%），分析结果可能不准。");
+          }
+        }
         return;
       }
 
@@ -327,6 +374,19 @@ export default function PoseAnalyzer() {
         knee: { x: poseResult.data.knee.pixelX, y: poseResult.data.knee.pixelY },
         ankle: { x: poseResult.data.ankle.pixelX, y: poseResult.data.ankle.pixelY },
       };
+
+      const confidenceScore = mean([
+        poseResult.data.shoulder.confidence || 0,
+        poseResult.data.hip.confidence || 0,
+        poseResult.data.knee.confidence || 0,
+        poseResult.data.ankle.confidence || 0,
+      ]);
+      const completeness = confidenceScore * 100;
+      if (completeness < QUALITY_WARN_THRESHOLD) {
+        setQualityWarning("视频质量不佳（人体完整度低于 70%），分析结果可能不准。");
+      } else {
+        setQualityWarning("");
+      }
 
       const metrics = buildGaitMetrics(points);
       const advice = getGaitAdvice(metrics);
@@ -344,7 +404,7 @@ export default function PoseAnalyzer() {
         height: poseResult.meta?.frameSize?.height || videoEl.videoHeight,
       };
       drawSkeletonOnCanvas(points, latestFrameSizeRef.current, skeletonAlert.lineColor);
-      updateSessionStats(metrics, finalAdvice);
+      updateSessionStats(metrics, finalAdvice, confidenceScore);
 
       const elapsed = poseResult.meta?.elapsedMs ?? 0;
       pushLog(`[Performance] 当前 AI 处理耗时：${elapsed} ms`);
@@ -371,9 +431,7 @@ export default function PoseAnalyzer() {
       await analyzeFrame();
       if (!isMountedRef.current) return;
       const videoEl = videoRef.current;
-      if (videoEl && !videoEl.paused && !videoEl.ended) {
-        rafIdRef.current = requestAnimationFrame(tick);
-      }
+      if (videoEl && !videoEl.paused && !videoEl.ended) rafIdRef.current = requestAnimationFrame(tick);
     };
     rafIdRef.current = requestAnimationFrame(tick);
   }, [analyzeFrame]);
@@ -387,9 +445,7 @@ export default function PoseAnalyzer() {
     const tick = async () => {
       await analyzeFrame();
       if (!isMountedRef.current) return;
-      if (!videoEl.paused && !videoEl.ended) {
-        vfcIdRef.current = videoEl.requestVideoFrameCallback(tick);
-      }
+      if (!videoEl.paused && !videoEl.ended) vfcIdRef.current = videoEl.requestVideoFrameCallback(tick);
     };
     vfcIdRef.current = videoEl.requestVideoFrameCallback(tick);
   }, [analyzeFrame, scheduleWithRaf]);
@@ -400,7 +456,7 @@ export default function PoseAnalyzer() {
     scheduleWithVideoFrameCallback();
   }, [scheduleWithVideoFrameCallback, stopLoop]);
 
-  const buildCoachSummary = useCallback(() => {
+  const buildLocalSummary = useCallback(() => {
     const s = sessionStatsRef.current;
     if (s.validFrames === 0) {
       return "本次还没有采集到有效跑姿帧。先播放视频几秒钟，再点“一键保存报告”。";
@@ -409,69 +465,26 @@ export default function PoseAnalyzer() {
     const abnormalRate = safeDivide(s.abnormalFrames * 100, s.validFrames);
     const durationSec = s.startAt && s.endAt ? Math.max(1, Math.round((s.endAt - s.startAt) / 1000)) : 0;
 
-    let mainIssue = "整体姿态较稳定";
-    if (s.stiffKneeFrames >= s.backLeanFrames && s.stiffKneeFrames >= s.overLeanFrames && s.stiffKneeFrames > 0) {
-      mainIssue = "落地瞬间膝盖偏硬（易受伤风险）";
-    } else if (s.backLeanFrames >= s.overLeanFrames && s.backLeanFrames > 0) {
-      mainIssue = "躯干偏直/后仰趋势";
-    } else if (s.overLeanFrames > 0) {
-      mainIssue = "躯干前倾偏大";
-    }
-
     return [
       `本次视频共分析 ${s.validFrames} 帧（约 ${durationSec} 秒），异常帧占比约 ${abnormalRate.toFixed(1)}%。`,
       `躯干前倾平均约 ${avgTorso.toFixed(1)}°，范围 ${s.torsoMin.toFixed(1)}° ~ ${s.torsoMax.toFixed(1)}°。`,
       `膝盖弯曲度范围 ${s.kneeFlexMin.toFixed(1)}° ~ ${s.kneeFlexMax.toFixed(1)}°。`,
-      `主要问题：${mainIssue}。`,
       "本地教练总结：先把步子略收小，保持核心稳定，落地时让膝盖像弹簧先松一点，再逐步提速。",
     ].join("\n");
   }, []);
 
   const buildCoachMetricsPayload = useCallback(() => {
     const s = sessionStatsRef.current;
-    const n = s.validFrames;
-    if (n === 0) {
-      return {
-        frameCount: 0,
-        sampleSeconds: 0,
-        abnormalRate: 0,
-        torsoLean: { avg: 0, min: 0, max: 0, cv: 0 },
-        kneeFlexion: { avg: 0, min: 0, max: 0, cv: 0 },
-      };
-    }
-
-    const torsoAvg = safeDivide(s.torsoSum, n);
-    const torsoVar = Math.max(0, safeDivide(s.torsoSqSum, n) - torsoAvg * torsoAvg);
-    const torsoStd = Math.sqrt(torsoVar);
-    const torsoCv = Math.abs(torsoAvg) < 1e-6 ? 0 : torsoStd / Math.abs(torsoAvg);
-
-    const kneeAvg = safeDivide(s.kneeFlexSum, n);
-    const kneeVar = Math.max(0, safeDivide(s.kneeFlexSqSum, n) - kneeAvg * kneeAvg);
-    const kneeStd = Math.sqrt(kneeVar);
-    const kneeCv = Math.abs(kneeAvg) < 1e-6 ? 0 : kneeStd / Math.abs(kneeAvg);
-
     const sampleSeconds = s.startAt && s.endAt ? Math.max(1, Math.round((s.endAt - s.startAt) / 1000)) : 0;
-
     return {
-      frameCount: n,
+      frameCount: s.validFrames,
+      abnormalRate: safeDivide(s.abnormalFrames * 100, s.validFrames),
       sampleSeconds,
-      abnormalRate: safeDivide(s.abnormalFrames * 100, n),
-      torsoLean: {
-        avg: Number(torsoAvg.toFixed(4)),
-        min: Number(s.torsoMin.toFixed(4)),
-        max: Number(s.torsoMax.toFixed(4)),
-        cv: Number(torsoCv.toFixed(6)),
-      },
-      kneeFlexion: {
-        avg: Number(kneeAvg.toFixed(4)),
-        min: Number(s.kneeFlexMin.toFixed(4)),
-        max: Number(s.kneeFlexMax.toFixed(4)),
-        cv: Number(kneeCv.toFixed(6)),
-      },
+      frames: s.frames,
     };
   }, []);
 
-  const downloadReport = useCallback((text) => {
+  const downloadTextReport = useCallback((text) => {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").slice(0, 19);
     const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -484,10 +497,23 @@ export default function PoseAnalyzer() {
     URL.revokeObjectURL(url);
   }, []);
 
+  const buildReportPayload = useCallback((detailsText, sourceLabel) => {
+    const stats = sessionStatsRef.current;
+    const score = buildScore(stats);
+    const tags = buildRiskTags(stats);
+    const summary = detailsText.split("\n").slice(0, 3).join("\n");
+    return {
+      score,
+      tags,
+      summary: summary || "暂无摘要",
+      details: detailsText || "暂无详情",
+      source: sourceLabel,
+    };
+  }, []);
+
   const handleSaveReport = useCallback(async () => {
     if (isDeepAnalyzing) return;
-
-    const localSummary = buildCoachSummary();
+    const localSummary = buildLocalSummary();
     const metricsPayload = buildCoachMetricsPayload();
 
     setSaveNotice("");
@@ -501,31 +527,58 @@ export default function PoseAnalyzer() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ metrics: metricsPayload }),
       });
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      if (!data?.ok || !data?.report) {
-        throw new Error(data?.error || "Empty report");
-      }
+      if (!data?.ok || !data?.report) throw new Error(data?.error || "Empty report");
 
       const cloudReport = data.report;
       setReportText(cloudReport);
+      setReportPayload(buildReportPayload(cloudReport, data.provider || "云端教练"));
+      setShowReport(true);
       setSaveNotice("云端教练报告已生成并保存到本地下载。");
-      downloadReport(cloudReport);
+      downloadTextReport(cloudReport);
       setStatus("UI 部门：云端报告已刷新");
       pushLog("Analysis 部门：云端教练返回成功，报告已渲染。");
     } catch (err) {
       setReportText(localSummary);
+      setReportPayload(buildReportPayload(localSummary, "本地规则回退"));
+      setShowReport(true);
       setSaveNotice("云端教练暂时不可用，已自动回退本地总结并完成保存。");
-      downloadReport(localSummary);
+      downloadTextReport(localSummary);
       setStatus("系统：已回退本地总结");
       pushLog(`系统容错：云端失败，已回退本地建议（${String(err?.message || err)}）`);
     } finally {
       setIsDeepAnalyzing(false);
     }
-  }, [buildCoachMetricsPayload, buildCoachSummary, downloadReport, isDeepAnalyzing, pushLog]);
+  }, [buildCoachMetricsPayload, buildLocalSummary, buildReportPayload, downloadTextReport, isDeepAnalyzing, pushLog]);
+
+  const handleDownloadPdf = useCallback(async () => {
+    if (isDownloadingPdf) return;
+    try {
+      setIsDownloadingPdf(true);
+      const res = await fetch("/api/report-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(reportPayload),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "running-diagnostic-report.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      pushLog("UI 部门：PDF 报告已下载。");
+    } catch (err) {
+      setErrorText("PDF 下载失败，请稍后重试。");
+      pushLog(`系统异常：PDF 下载失败（${String(err?.message || err)}）`);
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  }, [isDownloadingPdf, pushLog, reportPayload]);
 
   const applyVideoFile = useCallback(
     (file) => {
@@ -533,15 +586,16 @@ export default function PoseAnalyzer() {
         setErrorText("请上传视频文件（mp4/mov/webm）。");
         return;
       }
-
       if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current);
       const nextUrl = URL.createObjectURL(file);
       fileUrlRef.current = nextUrl;
       setVideoUrl(nextUrl);
       setAngle(null);
       setErrorText("");
+      setQualityWarning("");
       setReportText("");
       setSaveNotice("");
+      setShowReport(false);
       setCoachAdvice({
         ...createInitialAdvice(),
         currentStatus: "【当前状态】视频已加载，等待有效跑姿帧。",
@@ -558,23 +612,17 @@ export default function PoseAnalyzer() {
     [clearCanvas, pushLog, resetSessionStats]
   );
 
-  const handleFileChange = useCallback(
-    (event) => {
-      const file = event.target.files?.[0];
-      if (file) applyVideoFile(file);
-    },
-    [applyVideoFile]
-  );
+  const handleFileChange = useCallback((event) => {
+    const file = event.target.files?.[0];
+    if (file) applyVideoFile(file);
+  }, [applyVideoFile]);
 
-  const handleDrop = useCallback(
-    (event) => {
-      event.preventDefault();
-      setIsDragging(false);
-      const file = event.dataTransfer.files?.[0];
-      if (file) applyVideoFile(file);
-    },
-    [applyVideoFile]
-  );
+  const handleDrop = useCallback((event) => {
+    event.preventDefault();
+    setIsDragging(false);
+    const file = event.dataTransfer.files?.[0];
+    if (file) applyVideoFile(file);
+  }, [applyVideoFile]);
 
   return (
     <section
@@ -642,7 +690,9 @@ export default function PoseAnalyzer() {
         }}
       >
         <div style={{ fontSize: 18, fontWeight: 700 }}>拖拽视频到这里，或点击选择文件</div>
-        <div style={{ fontSize: 13, color: theme.subText, marginTop: 6 }}>支持 mp4 / mov / webm，建议上传侧面跑步视频</div>
+        <div style={{ fontSize: 13, color: theme.subText, marginTop: 6 }}>
+          智能拍摄助手：请确保摄影机与跑者呈 90° 侧面，光线充足，且全身入镜。
+        </div>
         <input ref={fileInputRef} type="file" accept="video/*" onChange={handleFileChange} style={{ display: "none" }} />
       </div>
 
@@ -687,6 +737,8 @@ export default function PoseAnalyzer() {
           <div style={{ fontSize: 42, fontWeight: 800, color: angleColor, lineHeight: 1.1 }}>{angle == null ? "--" : `${angle}°`}</div>
           <div style={{ fontSize: 12, color: theme.subText, marginTop: 4 }}>正常骨架亮绿，异常自动变红</div>
           <div style={{ marginTop: 12, fontSize: 13 }}>状态：{status}</div>
+
+          {qualityWarning ? <div style={{ marginTop: 8, color: theme.warn, fontSize: 13 }}>质量自检：{qualityWarning}</div> : null}
           {isLoading ? (
             <div style={{ marginTop: 10, color: theme.accent, fontSize: 13 }}>
               模型加载中 <LoadingDots />
@@ -694,25 +746,41 @@ export default function PoseAnalyzer() {
           ) : null}
           {errorText ? <div style={{ marginTop: 10, color: theme.danger, fontSize: 13 }}>提示：{errorText}</div> : null}
 
-          <button
-            type="button"
-            onClick={handleSaveReport}
-            disabled={isDeepAnalyzing}
-            style={{
-              marginTop: 14,
-              width: "100%",
-              border: `1px solid ${theme.border}`,
-              borderRadius: 10,
-              padding: "10px 12px",
-              fontWeight: 700,
-              background: "#1a2530",
-              color: theme.text,
-              cursor: isDeepAnalyzing ? "not-allowed" : "pointer",
-              opacity: isDeepAnalyzing ? 0.7 : 1,
-            }}
-          >
-            {isDeepAnalyzing ? "教练深度分析中..." : "一键保存报告"}
-          </button>
+          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+            <button
+              type="button"
+              onClick={handleSaveReport}
+              disabled={isDeepAnalyzing}
+              style={{
+                flex: 1,
+                border: `1px solid ${theme.border}`,
+                borderRadius: 10,
+                padding: "10px 12px",
+                fontWeight: 700,
+                background: "#1a2530",
+                color: theme.text,
+                cursor: isDeepAnalyzing ? "not-allowed" : "pointer",
+                opacity: isDeepAnalyzing ? 0.7 : 1,
+              }}
+            >
+              {isDeepAnalyzing ? "教练深度分析中..." : "一键保存报告"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowReport(true)}
+              style={{
+                border: `1px solid ${theme.border}`,
+                borderRadius: 10,
+                padding: "10px 12px",
+                fontWeight: 700,
+                background: "#111821",
+                color: theme.text,
+                cursor: "pointer",
+              }}
+            >
+              查看报告
+            </button>
+          </div>
           {saveNotice ? <div style={{ marginTop: 8, fontSize: 12, color: theme.accent }}>{saveNotice}</div> : null}
         </aside>
       </div>
@@ -724,27 +792,30 @@ export default function PoseAnalyzer() {
         <div style={{ fontSize: 17, color: theme.accent, fontWeight: 700, lineHeight: 1.8 }}>{coachAdvice.action}</div>
       </div>
 
-      <div
-        style={{
-          marginTop: 16,
-          border: `1px solid ${theme.border}`,
-          borderRadius: 14,
-          background: theme.panelBg,
-          padding: 12,
-          whiteSpace: "pre-wrap",
-        }}
-      >
-        <h3 style={{ marginTop: 0, marginBottom: 8 }}>教练总结报告</h3>
+      <div style={{ marginTop: 16, border: `1px solid ${theme.border}`, borderRadius: 14, background: theme.panelBg, padding: 12 }}>
+        <h3 style={{ marginTop: 0, marginBottom: 8 }}>教练总结文本</h3>
         {isDeepAnalyzing ? (
           <div style={{ fontSize: 14, color: theme.accent }}>
             教练正在深度分析... <LoadingDots />
           </div>
         ) : (
-          <div style={{ fontSize: 14, color: theme.text }}>
+          <div style={{ fontSize: 14, color: theme.text, whiteSpace: "pre-wrap" }}>
             {reportText || "点击“一键保存报告”后，这里会生成本次跑姿训练总结。"}
           </div>
         )}
       </div>
+
+      {showReport ? (
+        <ReportView
+          reportScore={reportPayload.score}
+          riskTags={reportPayload.tags}
+          reportSummary={reportPayload.summary}
+          reportDetails={reportPayload.details}
+          sourceLabel={reportPayload.source}
+          onDownloadPdf={handleDownloadPdf}
+          isDownloadingPdf={isDownloadingPdf}
+        />
+      ) : null}
 
       {showLogs ? (
         <div style={{ marginTop: 16, border: `1px solid ${theme.border}`, borderRadius: 14, background: theme.panelBg, padding: 12 }}>
