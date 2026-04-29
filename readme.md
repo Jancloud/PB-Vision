@@ -344,3 +344,56 @@ npm run dev
 
 4. 如果后续要切换 full 模型，请再补充：
 - `public/mediapipe/models/pose_landmarker_full.task`
+
+## 19. UI/UX 升级规范（Sports Tech 主题）
+### 19.1 主题规范
+1. 全站使用深色模式：页面背景深灰（#0b0f14），卡片背景微亮灰（#151b22）。
+2. 取消生硬阴影，统一使用边框分层（低对比边框）。
+3. 字体统一为科技感无衬线：`Rajdhani / Noto Sans SC / Microsoft YaHei`。
+
+### 19.2 极简工作流
+1. 上传区升级为可拖拽 Drop Zone，支持点击选择文件与拖拽上传。
+2. 架构日志默认隐藏，仅通过右上角菜单开关展开。
+
+### 19.3 Canvas 骨架叠层（关键链路）
+1. UI 层在视频上方覆盖透明 Canvas。
+2. Logic 层（Worker）持续输出标准坐标（shoulder/hip/knee/ankle）。
+3. UI 层把坐标映射到显示分辨率后实时画线（肩 -> 胯 -> 膝 -> 踝）。
+4. Analysis 层根据指标返回报警级别，驱动骨架颜色联动。
+
+### 19.4 状态联动规则
+1. 正常姿态：骨架亮绿色。
+2. 异常姿态（如后仰、前倾过大、膝盖过硬）：骨架立即切红色进行视觉报警。
+3. 仪表盘角度颜色与骨架颜色保持一致的状态语义（正常绿、异常警示色）。
+
+## 20. 云端教练 API（DeepSeek/GLM）
+### 20.1 后端接口
+- 新增文件：`src/pages/api/coach.js`
+- 职责：服务端安全调用大模型，前端不暴露 API Key。
+
+### 20.2 环境变量
+按需二选一：
+
+DeepSeek：
+- `COACH_PROVIDER=deepseek`
+- `DEEPSEEK_API_KEY=你的密钥`
+- `DEEPSEEK_MODEL=deepseek-chat`（可选）
+
+GLM：
+- `COACH_PROVIDER=glm`
+- `GLM_API_KEY=你的密钥`
+- `GLM_MODEL=glm-4-flash`（可选）
+
+### 20.3 Prompt 结构
+后端会把前端上传的 metrics（角度、变异系数、帧数、异常率）转成结构化 Prompt，
+要求 AI 输出：
+1. 技术诊断
+2. 与精英常模对比
+3. 潜在风险
+4. 训练处方（含保加利亚蹲、靠墙静蹲等可执行动作）
+5. 下次复测目标
+
+### 20.4 容错与体验
+- 点击“一键保存报告”后，UI 显示“教练正在深度分析...”加载态。
+- 若云端接口失败，自动回退到本地静态总结，不中断用户体验。
+- 回退后仍会正常生成并下载报告文件。

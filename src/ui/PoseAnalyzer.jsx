@@ -15,6 +15,17 @@ import {
 const ANALYZE_EVERY_NTH_FRAME = 3;
 const ABNORMAL_LOG_COOLDOWN_MS = 1500;
 
+const theme = {
+  panelBg: "#151b22",
+  panelBg2: "#10161d",
+  border: "#232d38",
+  text: "#e8f0fa",
+  subText: "#93a4b7",
+  accent: "#31ff9a",
+  warn: "#ff9f1a",
+  danger: "#ff4d4d",
+};
+
 function formatNow() {
   const now = new Date();
   const hh = String(now.getHours()).padStart(2, "0");
@@ -46,15 +57,41 @@ function createInitialAdvice() {
     action: "【一句话改进动作】先上传并播放一段侧面跑步视频。",
     isAbnormal: false,
     issueTag: "normal",
-    skeletonAlert: { alertLevel: "normal", lineColor: "#22c55e" },
+    skeletonAlert: { alertLevel: "normal", lineColor: theme.accent },
     metrics: null,
   };
+}
+
+function createInitialStats() {
+  return {
+    validFrames: 0,
+    abnormalFrames: 0,
+    stiffKneeFrames: 0,
+    backLeanFrames: 0,
+    overLeanFrames: 0,
+    torsoSum: 0,
+    torsoSqSum: 0,
+    torsoMin: Infinity,
+    torsoMax: -Infinity,
+    kneeFlexSum: 0,
+    kneeFlexSqSum: 0,
+    kneeFlexMin: Infinity,
+    kneeFlexMax: -Infinity,
+    startAt: null,
+    endAt: null,
+  };
+}
+
+function safeDivide(numerator, denominator) {
+  if (!denominator) return 0;
+  return numerator / denominator;
 }
 
 export default function PoseAnalyzer() {
   const videoRef = useRef(null);
   const videoWrapRef = useRef(null);
   const canvasRef = useRef(null);
+  const fileInputRef = useRef(null);
   const fileUrlRef = useRef("");
   const isMountedRef = useRef(true);
   const isAnalyzingRef = useRef(false);
@@ -64,22 +101,8 @@ export default function PoseAnalyzer() {
   const lastAbnormalLogAtRef = useRef(0);
   const latestSkeletonRef = useRef(null);
   const latestFrameSizeRef = useRef({ width: 0, height: 0 });
-  const latestLineColorRef = useRef("#22c55e");
-
-  const sessionStatsRef = useRef({
-    validFrames: 0,
-    abnormalFrames: 0,
-    stiffKneeFrames: 0,
-    backLeanFrames: 0,
-    overLeanFrames: 0,
-    torsoSum: 0,
-    torsoMin: Infinity,
-    torsoMax: -Infinity,
-    kneeFlexMin: Infinity,
-    kneeFlexMax: -Infinity,
-    startAt: null,
-    endAt: null,
-  });
+  const latestLineColorRef = useRef(theme.accent);
+  const sessionStatsRef = useRef(createInitialStats());
 
   const [videoUrl, setVideoUrl] = useState("");
   const [status, setStatus] = useState("等待上传视频");
@@ -87,50 +110,34 @@ export default function PoseAnalyzer() {
   const [logs, setLogs] = useState([]);
   const [angle, setAngle] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [showLogs, setShowLogs] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [coachAdvice, setCoachAdvice] = useState(createInitialAdvice);
   const [reportText, setReportText] = useState("");
   const [saveNotice, setSaveNotice] = useState("");
+  const [isDeepAnalyzing, setIsDeepAnalyzing] = useState(false);
 
   const pushLog = useCallback((text) => {
     setLogs((prev) => {
       const next = [...prev, `[${formatNow()}] ${text}`];
-      return next.length > 30 ? next.slice(next.length - 30) : next;
+      return next.length > 50 ? next.slice(next.length - 50) : next;
     });
   }, []);
 
   const angleColor = useMemo(() => {
-    if (angle == null) {
-      return "#6b7280";
-    }
-    return angle >= 5 && angle <= 10 ? "#16a34a" : "#f59e0b";
+    if (angle == null) return theme.subText;
+    return angle >= 5 && angle <= 10 ? theme.accent : theme.warn;
   }, [angle]);
 
   const resetSessionStats = useCallback(() => {
-    sessionStatsRef.current = {
-      validFrames: 0,
-      abnormalFrames: 0,
-      stiffKneeFrames: 0,
-      backLeanFrames: 0,
-      overLeanFrames: 0,
-      torsoSum: 0,
-      torsoMin: Infinity,
-      torsoMax: -Infinity,
-      kneeFlexMin: Infinity,
-      kneeFlexMax: -Infinity,
-      startAt: null,
-      endAt: null,
-    };
+    sessionStatsRef.current = createInitialStats();
   }, []);
 
   const clearCanvas = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas) {
-      return;
-    }
+    if (!canvas) return;
     const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      return;
-    }
+    if (!ctx) return;
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -140,16 +147,10 @@ export default function PoseAnalyzer() {
   const syncCanvasSize = useCallback(() => {
     const wrap = videoWrapRef.current;
     const canvas = canvasRef.current;
-    if (!wrap || !canvas) {
-      return;
-    }
-
+    if (!wrap || !canvas) return;
     const width = wrap.clientWidth;
     const height = wrap.clientHeight;
-    if (!width || !height) {
-      return;
-    }
-
+    if (!width || !height) return;
     const dpr = window.devicePixelRatio || 1;
     const targetWidth = Math.round(width * dpr);
     const targetHeight = Math.round(height * dpr);
@@ -161,67 +162,61 @@ export default function PoseAnalyzer() {
     }
   }, []);
 
-  const drawSkeletonOnCanvas = useCallback((points, frameSize, lineColor) => {
-    const canvas = canvasRef.current;
-    const wrap = videoWrapRef.current;
-    if (!canvas || !wrap || !points || !frameSize?.width || !frameSize?.height) {
-      return;
-    }
+  const drawSkeletonOnCanvas = useCallback(
+    (points, frameSize, lineColor) => {
+      const canvas = canvasRef.current;
+      const wrap = videoWrapRef.current;
+      if (!canvas || !wrap || !points || !frameSize?.width || !frameSize?.height) return;
 
-    syncCanvasSize();
+      syncCanvasSize();
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      return;
-    }
+      const displayWidth = wrap.clientWidth;
+      const displayHeight = wrap.clientHeight;
+      const sx = displayWidth / frameSize.width;
+      const sy = displayHeight / frameSize.height;
+      const dpr = window.devicePixelRatio || 1;
 
-    const displayWidth = wrap.clientWidth;
-    const displayHeight = wrap.clientHeight;
-    const sx = displayWidth / frameSize.width;
-    const sy = displayHeight / frameSize.height;
-    const dpr = window.devicePixelRatio || 1;
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, displayWidth, displayHeight);
 
-    ctx.save();
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, displayWidth, displayHeight);
+      const mapped = {
+        shoulder: { x: points.shoulder.x * sx, y: points.shoulder.y * sy },
+        hip: { x: points.hip.x * sx, y: points.hip.y * sy },
+        knee: { x: points.knee.x * sx, y: points.knee.y * sy },
+        ankle: { x: points.ankle.x * sx, y: points.ankle.y * sy },
+      };
 
-    const mapped = {
-      shoulder: { x: points.shoulder.x * sx, y: points.shoulder.y * sy },
-      hip: { x: points.hip.x * sx, y: points.hip.y * sy },
-      knee: { x: points.knee.x * sx, y: points.knee.y * sy },
-      ankle: { x: points.ankle.x * sx, y: points.ankle.y * sy },
-    };
-
-    ctx.strokeStyle = lineColor || "#22c55e";
-    ctx.lineWidth = 4;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-
-    // 连接肩 -> 胯 -> 膝 -> 踝
-    ctx.beginPath();
-    ctx.moveTo(mapped.shoulder.x, mapped.shoulder.y);
-    ctx.lineTo(mapped.hip.x, mapped.hip.y);
-    ctx.lineTo(mapped.knee.x, mapped.knee.y);
-    ctx.lineTo(mapped.ankle.x, mapped.ankle.y);
-    ctx.stroke();
-
-    // 关节点高亮
-    ctx.fillStyle = "#ffffff";
-    [mapped.shoulder, mapped.hip, mapped.knee, mapped.ankle].forEach((p) => {
+      ctx.strokeStyle = lineColor || theme.accent;
+      ctx.lineWidth = 4;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
-      ctx.fill();
-    });
+      ctx.moveTo(mapped.shoulder.x, mapped.shoulder.y);
+      ctx.lineTo(mapped.hip.x, mapped.hip.y);
+      ctx.lineTo(mapped.knee.x, mapped.knee.y);
+      ctx.lineTo(mapped.ankle.x, mapped.ankle.y);
+      ctx.stroke();
 
-    ctx.restore();
-  }, [syncCanvasSize]);
+      ctx.fillStyle = "#ffffff";
+      [mapped.shoulder, mapped.hip, mapped.knee, mapped.ankle].forEach((p) => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      ctx.restore();
+    },
+    [syncCanvasSize]
+  );
 
   const stopLoop = useCallback(() => {
     if (rafIdRef.current) {
       cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = null;
     }
-
     const videoEl = videoRef.current;
     if (videoEl && vfcIdRef.current != null && typeof videoEl.cancelVideoFrameCallback === "function") {
       videoEl.cancelVideoFrameCallback(vfcIdRef.current);
@@ -231,17 +226,12 @@ export default function PoseAnalyzer() {
 
   useEffect(() => {
     isMountedRef.current = true;
-
     const boot = async () => {
       setIsLoading(true);
       setStatus("系统：正在加载 AI 模型");
       pushLog("Logic 部门：正在启动 Worker 并加载 MediaPipe 模型。");
-
       const initResult = await initPoseDetector({ minConfidence: 0.6 });
-      if (!isMountedRef.current) {
-        return;
-      }
-
+      if (!isMountedRef.current) return;
       if (!initResult.ok) {
         setStatus("系统：模型加载失败");
         setErrorText(initResult.error.message);
@@ -254,9 +244,7 @@ export default function PoseAnalyzer() {
     };
 
     boot().catch((err) => {
-      if (!isMountedRef.current) {
-        return;
-      }
+      if (!isMountedRef.current) return;
       setStatus("系统：初始化异常");
       setErrorText("模型初始化异常，请刷新重试。");
       pushLog(`系统异常：${String(err?.message || err)}`);
@@ -276,54 +264,40 @@ export default function PoseAnalyzer() {
       window.removeEventListener("resize", onResize);
       stopLoop();
       disposePoseDetector();
-      if (fileUrlRef.current) {
-        URL.revokeObjectURL(fileUrlRef.current);
-      }
+      if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current);
     };
   }, [drawSkeletonOnCanvas, pushLog, stopLoop, syncCanvasSize]);
 
   const updateSessionStats = useCallback((metrics, advice) => {
     const stats = sessionStatsRef.current;
     const now = Date.now();
-    if (!stats.startAt) {
-      stats.startAt = now;
-    }
+    if (!stats.startAt) stats.startAt = now;
     stats.endAt = now;
+
     stats.validFrames += 1;
     stats.torsoSum += metrics.torsoLeanAngle;
+    stats.torsoSqSum += metrics.torsoLeanAngle * metrics.torsoLeanAngle;
     stats.torsoMin = Math.min(stats.torsoMin, metrics.torsoLeanAngle);
     stats.torsoMax = Math.max(stats.torsoMax, metrics.torsoLeanAngle);
+
+    stats.kneeFlexSum += metrics.kneeFlexionAngle;
+    stats.kneeFlexSqSum += metrics.kneeFlexionAngle * metrics.kneeFlexionAngle;
     stats.kneeFlexMin = Math.min(stats.kneeFlexMin, metrics.kneeFlexionAngle);
     stats.kneeFlexMax = Math.max(stats.kneeFlexMax, metrics.kneeFlexionAngle);
 
-    if (advice.isAbnormal) {
-      stats.abnormalFrames += 1;
-    }
-    if (advice.issueTag === "stiff_knee") {
-      stats.stiffKneeFrames += 1;
-    }
-    if (advice.issueTag === "back_lean") {
-      stats.backLeanFrames += 1;
-    }
-    if (advice.issueTag === "over_lean" || advice.issueTag === "over_lean_severe") {
-      stats.overLeanFrames += 1;
-    }
+    if (advice.isAbnormal) stats.abnormalFrames += 1;
+    if (advice.issueTag === "stiff_knee") stats.stiffKneeFrames += 1;
+    if (advice.issueTag === "back_lean") stats.backLeanFrames += 1;
+    if (advice.issueTag === "over_lean" || advice.issueTag === "over_lean_severe") stats.overLeanFrames += 1;
   }, []);
 
   const analyzeFrame = useCallback(async () => {
     const videoEl = videoRef.current;
-    if (!videoEl || videoEl.readyState < 2 || videoEl.paused || videoEl.ended) {
-      return;
-    }
-
-    if (isAnalyzingRef.current) {
-      return;
-    }
+    if (!videoEl || videoEl.readyState < 2 || videoEl.paused || videoEl.ended) return;
+    if (isAnalyzingRef.current) return;
 
     frameCountRef.current += 1;
-    if (frameCountRef.current % ANALYZE_EVERY_NTH_FRAME !== 0) {
-      return;
-    }
+    if (frameCountRef.current % ANALYZE_EVERY_NTH_FRAME !== 0) return;
 
     isAnalyzingRef.current = true;
     try {
@@ -335,9 +309,7 @@ export default function PoseAnalyzer() {
         timestampMs: performance.now(),
       });
 
-      if (!isMountedRef.current) {
-        return;
-      }
+      if (!isMountedRef.current) return;
 
       if (!poseResult.ok) {
         setStatus("Logic 部门：识别未通过，保持上一帧结果");
@@ -372,7 +344,6 @@ export default function PoseAnalyzer() {
         height: poseResult.meta?.frameSize?.height || videoEl.videoHeight,
       };
       drawSkeletonOnCanvas(points, latestFrameSizeRef.current, skeletonAlert.lineColor);
-
       updateSessionStats(metrics, finalAdvice);
 
       const elapsed = poseResult.meta?.elapsedMs ?? 0;
@@ -386,9 +357,7 @@ export default function PoseAnalyzer() {
         }
       }
     } catch (err) {
-      if (!isMountedRef.current) {
-        return;
-      }
+      if (!isMountedRef.current) return;
       setStatus("系统：处理异常");
       setErrorText("本帧处理失败，已自动跳过。");
       pushLog(`系统异常：${String(err?.message || err)}`);
@@ -400,12 +369,9 @@ export default function PoseAnalyzer() {
   const scheduleWithRaf = useCallback(() => {
     const tick = async () => {
       await analyzeFrame();
-      if (!isMountedRef.current) {
-        return;
-      }
+      if (!isMountedRef.current) return;
       const videoEl = videoRef.current;
-      const keepRunning = videoEl && !videoEl.paused && !videoEl.ended;
-      if (keepRunning) {
+      if (videoEl && !videoEl.paused && !videoEl.ended) {
         rafIdRef.current = requestAnimationFrame(tick);
       }
     };
@@ -418,14 +384,10 @@ export default function PoseAnalyzer() {
       scheduleWithRaf();
       return;
     }
-
     const tick = async () => {
       await analyzeFrame();
-      if (!isMountedRef.current) {
-        return;
-      }
-      const keepRunning = !videoEl.paused && !videoEl.ended;
-      if (keepRunning) {
+      if (!isMountedRef.current) return;
+      if (!videoEl.paused && !videoEl.ended) {
         vfcIdRef.current = videoEl.requestVideoFrameCallback(tick);
       }
     };
@@ -443,9 +405,8 @@ export default function PoseAnalyzer() {
     if (s.validFrames === 0) {
       return "本次还没有采集到有效跑姿帧。先播放视频几秒钟，再点“一键保存报告”。";
     }
-
-    const avgTorso = s.torsoSum / s.validFrames;
-    const abnormalRate = (s.abnormalFrames / s.validFrames) * 100;
+    const avgTorso = safeDivide(s.torsoSum, s.validFrames);
+    const abnormalRate = safeDivide(s.abnormalFrames * 100, s.validFrames);
     const durationSec = s.startAt && s.endAt ? Math.max(1, Math.round((s.endAt - s.startAt) / 1000)) : 0;
 
     let mainIssue = "整体姿态较稳定";
@@ -459,49 +420,121 @@ export default function PoseAnalyzer() {
 
     return [
       `本次视频共分析 ${s.validFrames} 帧（约 ${durationSec} 秒），异常帧占比约 ${abnormalRate.toFixed(1)}%。`,
-      `你的躯干前倾平均约 ${avgTorso.toFixed(1)}°，波动范围 ${s.torsoMin.toFixed(1)}° ~ ${s.torsoMax.toFixed(1)}°。`,
+      `躯干前倾平均约 ${avgTorso.toFixed(1)}°，范围 ${s.torsoMin.toFixed(1)}° ~ ${s.torsoMax.toFixed(1)}°。`,
       `膝盖弯曲度范围 ${s.kneeFlexMin.toFixed(1)}° ~ ${s.kneeFlexMax.toFixed(1)}°。`,
       `主要问题：${mainIssue}。`,
-      "教练总结：先把步子略收小，保持核心稳定，落地时让膝盖像弹簧先松一点，再逐步提速。",
+      "本地教练总结：先把步子略收小，保持核心稳定，落地时让膝盖像弹簧先松一点，再逐步提速。",
     ].join("\n");
   }, []);
 
-  const handleSaveReport = useCallback(() => {
-    const summary = buildCoachSummary();
-    setReportText(summary);
-    setSaveNotice("报告已生成。");
+  const buildCoachMetricsPayload = useCallback(() => {
+    const s = sessionStatsRef.current;
+    const n = s.validFrames;
+    if (n === 0) {
+      return {
+        frameCount: 0,
+        sampleSeconds: 0,
+        abnormalRate: 0,
+        torsoLean: { avg: 0, min: 0, max: 0, cv: 0 },
+        kneeFlexion: { avg: 0, min: 0, max: 0, cv: 0 },
+      };
+    }
 
-    // 同时导出 txt 文件，让“保存”动作有明确反馈。
-    const stamp = new Date()
-      .toISOString()
-      .replace(/[:.]/g, "-")
-      .replace("T", "_")
-      .slice(0, 19);
-    const filename = `running-report-${stamp}.txt`;
-    const blob = new Blob([summary], { type: "text/plain;charset=utf-8" });
+    const torsoAvg = safeDivide(s.torsoSum, n);
+    const torsoVar = Math.max(0, safeDivide(s.torsoSqSum, n) - torsoAvg * torsoAvg);
+    const torsoStd = Math.sqrt(torsoVar);
+    const torsoCv = Math.abs(torsoAvg) < 1e-6 ? 0 : torsoStd / Math.abs(torsoAvg);
+
+    const kneeAvg = safeDivide(s.kneeFlexSum, n);
+    const kneeVar = Math.max(0, safeDivide(s.kneeFlexSqSum, n) - kneeAvg * kneeAvg);
+    const kneeStd = Math.sqrt(kneeVar);
+    const kneeCv = Math.abs(kneeAvg) < 1e-6 ? 0 : kneeStd / Math.abs(kneeAvg);
+
+    const sampleSeconds = s.startAt && s.endAt ? Math.max(1, Math.round((s.endAt - s.startAt) / 1000)) : 0;
+
+    return {
+      frameCount: n,
+      sampleSeconds,
+      abnormalRate: safeDivide(s.abnormalFrames * 100, n),
+      torsoLean: {
+        avg: Number(torsoAvg.toFixed(4)),
+        min: Number(s.torsoMin.toFixed(4)),
+        max: Number(s.torsoMax.toFixed(4)),
+        cv: Number(torsoCv.toFixed(6)),
+      },
+      kneeFlexion: {
+        avg: Number(kneeAvg.toFixed(4)),
+        min: Number(s.kneeFlexMin.toFixed(4)),
+        max: Number(s.kneeFlexMax.toFixed(4)),
+        cv: Number(kneeCv.toFixed(6)),
+      },
+    };
+  }, []);
+
+  const downloadReport = useCallback((text) => {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").slice(0, 19);
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = filename;
+    a.download = `running-report-${stamp}.txt`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  }, []);
 
-    pushLog("UI 部门：已生成并保存本次教练总结报告。");
-  }, [buildCoachSummary, pushLog]);
+  const handleSaveReport = useCallback(async () => {
+    if (isDeepAnalyzing) return;
 
-  const handleFileChange = useCallback(
-    (event) => {
-      const file = event.target.files?.[0];
-      if (!file) {
+    const localSummary = buildCoachSummary();
+    const metricsPayload = buildCoachMetricsPayload();
+
+    setSaveNotice("");
+    setIsDeepAnalyzing(true);
+    setStatus("系统：教练正在深度分析...");
+    pushLog("UI 部门：已向云端教练发起深度分析请求。");
+
+    try {
+      const res = await fetch("/api/coach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ metrics: metricsPayload }),
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (!data?.ok || !data?.report) {
+        throw new Error(data?.error || "Empty report");
+      }
+
+      const cloudReport = data.report;
+      setReportText(cloudReport);
+      setSaveNotice("云端教练报告已生成并保存到本地下载。");
+      downloadReport(cloudReport);
+      setStatus("UI 部门：云端报告已刷新");
+      pushLog("Analysis 部门：云端教练返回成功，报告已渲染。");
+    } catch (err) {
+      setReportText(localSummary);
+      setSaveNotice("云端教练暂时不可用，已自动回退本地总结并完成保存。");
+      downloadReport(localSummary);
+      setStatus("系统：已回退本地总结");
+      pushLog(`系统容错：云端失败，已回退本地建议（${String(err?.message || err)}）`);
+    } finally {
+      setIsDeepAnalyzing(false);
+    }
+  }, [buildCoachMetricsPayload, buildCoachSummary, downloadReport, isDeepAnalyzing, pushLog]);
+
+  const applyVideoFile = useCallback(
+    (file) => {
+      if (!file || !file.type?.startsWith("video/")) {
+        setErrorText("请上传视频文件（mp4/mov/webm）。");
         return;
       }
 
-      if (fileUrlRef.current) {
-        URL.revokeObjectURL(fileUrlRef.current);
-      }
-
+      if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current);
       const nextUrl = URL.createObjectURL(file);
       fileUrlRef.current = nextUrl;
       setVideoUrl(nextUrl);
@@ -516,7 +549,7 @@ export default function PoseAnalyzer() {
       });
       latestSkeletonRef.current = null;
       latestFrameSizeRef.current = { width: 0, height: 0 };
-      latestLineColorRef.current = "#22c55e";
+      latestLineColorRef.current = theme.accent;
       resetSessionStats();
       clearCanvas();
       setStatus("UI 部门：视频已载入，等待播放");
@@ -525,8 +558,34 @@ export default function PoseAnalyzer() {
     [clearCanvas, pushLog, resetSessionStats]
   );
 
+  const handleFileChange = useCallback(
+    (event) => {
+      const file = event.target.files?.[0];
+      if (file) applyVideoFile(file);
+    },
+    [applyVideoFile]
+  );
+
+  const handleDrop = useCallback(
+    (event) => {
+      event.preventDefault();
+      setIsDragging(false);
+      const file = event.dataTransfer.files?.[0];
+      if (file) applyVideoFile(file);
+    },
+    [applyVideoFile]
+  );
+
   return (
-    <section style={{ maxWidth: 980, margin: "0 auto", padding: 16 }}>
+    <section
+      style={{
+        maxWidth: 1120,
+        margin: "0 auto",
+        padding: "22px 16px 28px",
+        color: theme.text,
+        fontFamily: "Rajdhani, Noto Sans SC, Microsoft YaHei, sans-serif",
+      }}
+    >
       <style>{`
         @keyframes blinkDots {
           0% { opacity: 0.2; }
@@ -535,39 +594,67 @@ export default function PoseAnalyzer() {
         }
       `}</style>
 
-      <h2 style={{ fontSize: 24, marginBottom: 12 }}>Pose Analyzer（跑姿分析工作台）</h2>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <h2 style={{ margin: 0, fontSize: 28, fontWeight: 700, letterSpacing: 0.5 }}>PB Vision · Sports Tech</h2>
+        <button
+          type="button"
+          onClick={() => setShowLogs((v) => !v)}
+          style={{
+            background: "transparent",
+            border: `1px solid ${theme.border}`,
+            color: theme.subText,
+            borderRadius: 10,
+            padding: "8px 12px",
+            cursor: "pointer",
+          }}
+        >
+          {showLogs ? "隐藏架构日志" : "显示架构日志"}
+        </button>
+      </div>
 
       <div
+        role="button"
+        tabIndex={0}
+        onClick={() => fileInputRef.current?.click()}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          setIsDragging(false);
+        }}
+        onDrop={handleDrop}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") fileInputRef.current?.click();
+        }}
         style={{
-          border: "1px solid #d1d5db",
-          borderRadius: 12,
-          padding: 12,
-          background: "#f9fafb",
+          border: `1px dashed ${isDragging ? theme.accent : theme.border}`,
+          borderRadius: 14,
+          padding: "22px 18px",
           marginBottom: 16,
+          background: isDragging ? "#132222" : theme.panelBg2,
+          cursor: "pointer",
         }}
       >
-        <label htmlFor="video-upload" style={{ display: "block", marginBottom: 8, fontWeight: 600 }}>
-          上传跑步视频（侧面）
-        </label>
-        <input id="video-upload" type="file" accept="video/*" onChange={handleFileChange} />
+        <div style={{ fontSize: 18, fontWeight: 700 }}>拖拽视频到这里，或点击选择文件</div>
+        <div style={{ fontSize: 13, color: theme.subText, marginTop: 6 }}>支持 mp4 / mov / webm，建议上传侧面跑步视频</div>
+        <input ref={fileInputRef} type="file" accept="video/*" onChange={handleFileChange} style={{ display: "none" }} />
       </div>
 
       <div style={{ display: "grid", gap: 16, gridTemplateColumns: "2fr 1fr", alignItems: "start" }}>
-        <div
-          style={{
-            border: "1px solid #e5e7eb",
-            borderRadius: 12,
-            padding: 12,
-            background: "#ffffff",
-          }}
-        >
+        <div style={{ border: `1px solid ${theme.border}`, borderRadius: 14, padding: 12, background: theme.panelBg }}>
           <div ref={videoWrapRef} style={{ position: "relative", width: "100%" }}>
             <video
               ref={videoRef}
               src={videoUrl || undefined}
               controls
               preload="metadata"
-              style={{ width: "100%", borderRadius: 8, background: "#111827", display: "block" }}
+              style={{ width: "100%", borderRadius: 10, background: "#090d12", display: "block" }}
               onLoadedData={() => {
                 setStatus("UI 部门：视频可播放，等待点击播放");
                 pushLog("UI 部门：视频帧准备完成。");
@@ -590,121 +677,92 @@ export default function PoseAnalyzer() {
                 pushLog("系统：分析结束。");
               }}
             />
-            <canvas
-              ref={canvasRef}
-              style={{
-                position: "absolute",
-                inset: 0,
-                pointerEvents: "none",
-                borderRadius: 8,
-              }}
-            />
+            <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, pointerEvents: "none", borderRadius: 10 }} />
           </div>
         </div>
 
-        <aside
-          style={{
-            border: "1px solid #e5e7eb",
-            borderRadius: 12,
-            padding: 12,
-            background: "#ffffff",
-          }}
-        >
-          <h3 style={{ marginTop: 0, marginBottom: 10 }}>实时仪表盘</h3>
-          <div style={{ fontSize: 14, color: "#4b5563", marginBottom: 6 }}>当前帧躯干前倾角</div>
-          <div style={{ fontSize: 36, fontWeight: 800, color: angleColor, lineHeight: 1.1 }}>
-            {angle == null ? "--" : `${angle}°`}
-          </div>
-          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>正常骨架亮绿，异常自动变橙/红</div>
-          <div style={{ marginTop: 12, fontSize: 13, color: "#111827" }}>状态：{status}</div>
+        <aside style={{ border: `1px solid ${theme.border}`, borderRadius: 14, padding: 14, background: theme.panelBg }}>
+          <h3 style={{ marginTop: 0, marginBottom: 8 }}>实时仪表盘</h3>
+          <div style={{ fontSize: 13, color: theme.subText }}>当前帧躯干前倾角</div>
+          <div style={{ fontSize: 42, fontWeight: 800, color: angleColor, lineHeight: 1.1 }}>{angle == null ? "--" : `${angle}°`}</div>
+          <div style={{ fontSize: 12, color: theme.subText, marginTop: 4 }}>正常骨架亮绿，异常自动变红</div>
+          <div style={{ marginTop: 12, fontSize: 13 }}>状态：{status}</div>
           {isLoading ? (
-            <div style={{ marginTop: 10, color: "#2563eb", fontSize: 13 }}>
+            <div style={{ marginTop: 10, color: theme.accent, fontSize: 13 }}>
               模型加载中 <LoadingDots />
             </div>
           ) : null}
-          {errorText ? (
-            <div style={{ marginTop: 10, color: "#b91c1c", fontSize: 13 }}>提示：{errorText}</div>
-          ) : null}
+          {errorText ? <div style={{ marginTop: 10, color: theme.danger, fontSize: 13 }}>提示：{errorText}</div> : null}
+
           <button
             type="button"
             onClick={handleSaveReport}
+            disabled={isDeepAnalyzing}
             style={{
               marginTop: 14,
               width: "100%",
-              border: "none",
+              border: `1px solid ${theme.border}`,
               borderRadius: 10,
               padding: "10px 12px",
               fontWeight: 700,
-              background: "#0f766e",
-              color: "#ffffff",
-              cursor: "pointer",
-              position: "relative",
-              zIndex: 5,
+              background: "#1a2530",
+              color: theme.text,
+              cursor: isDeepAnalyzing ? "not-allowed" : "pointer",
+              opacity: isDeepAnalyzing ? 0.7 : 1,
             }}
           >
-            一键保存报告
+            {isDeepAnalyzing ? "教练深度分析中..." : "一键保存报告"}
           </button>
-          {saveNotice ? (
-            <div style={{ marginTop: 8, fontSize: 12, color: "#065f46" }}>{saveNotice}</div>
-          ) : null}
+          {saveNotice ? <div style={{ marginTop: 8, fontSize: 12, color: theme.accent }}>{saveNotice}</div> : null}
         </aside>
       </div>
 
-      <div
-        style={{
-          marginTop: 16,
-          border: "2px solid #0f766e",
-          borderRadius: 12,
-          background: "#f0fdfa",
-          padding: 14,
-        }}
-      >
+      <div style={{ marginTop: 16, border: `1px solid ${theme.border}`, borderRadius: 14, background: theme.panelBg, padding: 14 }}>
         <h3 style={{ marginTop: 0, marginBottom: 10, fontSize: 22 }}>教练点评区</h3>
-        <div style={{ fontSize: 16, color: "#0f172a", lineHeight: 1.7 }}>{coachAdvice.currentStatus}</div>
-        <div style={{ fontSize: 16, color: "#991b1b", lineHeight: 1.7 }}>{coachAdvice.potentialRisk}</div>
-        <div style={{ fontSize: 17, color: "#065f46", fontWeight: 700, lineHeight: 1.8 }}>
-          {coachAdvice.action}
-        </div>
+        <div style={{ fontSize: 16, color: theme.text, lineHeight: 1.7 }}>{coachAdvice.currentStatus}</div>
+        <div style={{ fontSize: 16, color: "#ff8d8d", lineHeight: 1.7 }}>{coachAdvice.potentialRisk}</div>
+        <div style={{ fontSize: 17, color: theme.accent, fontWeight: 700, lineHeight: 1.8 }}>{coachAdvice.action}</div>
       </div>
 
       <div
         style={{
           marginTop: 16,
-          border: "1px solid #d1d5db",
-          borderRadius: 12,
-          background: "#f8fafc",
+          border: `1px solid ${theme.border}`,
+          borderRadius: 14,
+          background: theme.panelBg,
           padding: 12,
           whiteSpace: "pre-wrap",
         }}
       >
         <h3 style={{ marginTop: 0, marginBottom: 8 }}>教练总结报告</h3>
-        <div style={{ fontSize: 14, color: "#1f2937" }}>
-          {reportText || "点击“一键保存报告”后，这里会生成本次跑姿训练总结。"}
-        </div>
+        {isDeepAnalyzing ? (
+          <div style={{ fontSize: 14, color: theme.accent }}>
+            教练正在深度分析... <LoadingDots />
+          </div>
+        ) : (
+          <div style={{ fontSize: 14, color: theme.text }}>
+            {reportText || "点击“一键保存报告”后，这里会生成本次跑姿训练总结。"}
+          </div>
+        )}
       </div>
 
-      <div
-        style={{
-          marginTop: 16,
-          border: "1px solid #d1d5db",
-          borderRadius: 12,
-          background: "#f8fafc",
-          padding: 12,
-        }}
-      >
-        <h3 style={{ marginTop: 0, marginBottom: 8 }}>架构日志（大白话）</h3>
-        <div style={{ fontSize: 13, color: "#374151", minHeight: 160 }}>
-          {logs.length === 0 ? (
-            <div>日志还没开始，先上传并播放一个视频。</div>
-          ) : (
-            logs.map((line, index) => (
-              <div key={`${line}-${index}`} style={{ marginBottom: 4 }}>
-                {line}
-              </div>
-            ))
-          )}
+      {showLogs ? (
+        <div style={{ marginTop: 16, border: `1px solid ${theme.border}`, borderRadius: 14, background: theme.panelBg, padding: 12 }}>
+          <h3 style={{ marginTop: 0, marginBottom: 8 }}>架构日志（可折叠）</h3>
+          <div style={{ fontSize: 13, color: theme.subText, minHeight: 120 }}>
+            {logs.length === 0 ? (
+              <div>日志还没开始，先上传并播放一个视频。</div>
+            ) : (
+              logs.map((line, index) => (
+                <div key={`${line}-${index}`} style={{ marginBottom: 4 }}>
+                  {line}
+                </div>
+              ))
+            )}
+          </div>
         </div>
-      </div>
+      ) : null}
     </section>
   );
 }
+
