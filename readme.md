@@ -735,3 +735,11 @@ GLM：
    - 关闭报告
    - 截屏分享建议
 2. 按钮统一亮蓝渐变，适配 iPhone/Android 单手操作。
+
+### 28.6 移动端底部安全区补丁
+文件：`src/ui/ReportModal.jsx`、`src/ui/PoseAnalyzer.jsx`
+1. 保持底部操作栏 `position: fixed` 不变。
+2. 给移动端报告正文父容器增加底部留白：
+   - `padding-bottom: calc(100px + env(safe-area-inset-bottom))`
+3. 新增架构监控日志：
+   - `[UI 监控]: 已应用移动报告底部安全区留白补丁。`

@@ -1185,7 +1185,7 @@ export default function PoseAnalyzer() {
       </div>
 
       {showReport ? (
-        <ReportModal open={showReport} onClose={() => setShowReport(false)} payload={reportPayload} />
+        <ReportModal open={showReport} onClose={() => setShowReport(false)} payload={reportPayload} onUiLog={pushLog} />
       ) : null}
 
       {showLogs ? (

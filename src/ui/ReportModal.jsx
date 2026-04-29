@@ -166,7 +166,7 @@ function sectionButtonStyle(expanded) {
   };
 }
 
-export default function ReportModal({ open, onClose, payload }) {
+export default function ReportModal({ open, onClose, payload, onUiLog }) {
   const [isMobileView, setIsMobileView] = useState(false);
   const [expandedSections, setExpandedSections] = useState({
     tech: false,
@@ -175,6 +175,7 @@ export default function ReportModal({ open, onClose, payload }) {
     retest: false,
   });
   const [shareHint, setShareHint] = useState("");
+  const hasLoggedSafePaddingRef = useRef(false);
 
   const score = Number(payload?.score || 0);
   const animatedScore = useAnimatedNumber(score, { durationMs: 780, decimals: 0 });
@@ -200,7 +201,19 @@ export default function ReportModal({ open, onClose, payload }) {
     if (!open) return;
     setExpandedSections({ tech: false, norm: false, train: false, retest: false });
     setShareHint("");
+    hasLoggedSafePaddingRef.current = false;
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !isMobileView || hasLoggedSafePaddingRef.current) return;
+    const msg = "[UI 监控]: 已应用移动报告底部安全区留白补丁。";
+    if (typeof onUiLog === "function") onUiLog(msg);
+    else if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.info(msg);
+    }
+    hasLoggedSafePaddingRef.current = true;
+  }, [isMobileView, onUiLog, open]);
 
   const coachText = payload?.details || payload?.summary || "";
   const coachBlocks = useMemo(() => normalizeMarkdownToBlocks(coachText), [coachText]);
@@ -292,7 +305,7 @@ export default function ReportModal({ open, onClose, payload }) {
             animation: "mobileReportIn .24s ease-out",
           }}
         >
-          <div style={{ padding: "16px 14px 120px" }}>
+          <div style={{ padding: "16px 14px calc(100px + env(safe-area-inset-bottom))" }}>
             <div
               style={{
                 textAlign: "center",
