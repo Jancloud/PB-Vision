@@ -634,7 +634,7 @@ export default function PoseAnalyzer() {
   const buildLocalSummary = useCallback(() => {
     const s = sessionStatsRef.current;
     if (s.validFrames === 0) {
-      return "本次还没有采集到有效跑姿帧。先播放视频几秒钟，再点“一键保存报告”。";
+      return "本次还没有采集到有效跑姿帧。先播放视频几秒钟，再点“一键生成报告”。";
     }
     const avgTorso = safeDivide(s.torsoSum, s.validFrames);
     const abnormalRate = safeDivide(s.abnormalFrames * 100, s.validFrames);
@@ -1170,7 +1170,7 @@ export default function PoseAnalyzer() {
                 opacity: isDeepAnalyzing ? 0.7 : 1,
               }}
             >
-              {isDeepAnalyzing ? "教练深度分析中..." : "一键保存报告"}
+              {isDeepAnalyzing ? "教练深度分析中..." : "一键生成报告"}
             </button>
             <button
               type="button"
@@ -1207,7 +1207,7 @@ export default function PoseAnalyzer() {
           </div>
         ) : (
           <div style={{ fontSize: 14, color: theme.text, whiteSpace: "pre-wrap" }}>
-            {reportText || "点击“一键保存报告”后，这里会生成本次跑姿训练总结。"}
+            {reportText || "点击“一键生成报告”后，这里会生成本次跑姿训练总结。"}
           </div>
         )}
       </div>
