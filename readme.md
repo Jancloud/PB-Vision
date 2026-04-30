@@ -769,3 +769,26 @@ GLM：
    - `The Vision`
    - `The Tech`
    - `Safety`（醒目免责声明，非医疗建议）
+
+## 31. PWA 升级（2026-04-30）
+文件：`public/manifest.json`、`public/sw.js`、`src/ui/PwaBootstrap.jsx`、`src/app/layout.jsx`
+1. 新增 `manifest.json`：
+   - `name`: PB Vision - AI Gait Analysis
+   - `short_name`: PB Vision
+   - `theme_color`: `#00e5ff`
+   - `background_color`: `#000000`
+   - `display`: `standalone`
+   - `start_url`: `/`
+   - 图标路径预留：`/icons/icon-192.png`、`/icons/icon-512.png`
+2. 新增基础 Service Worker：
+   - 预缓存首页与 manifest
+   - 导航请求优先回退首页缓存
+   - 同源静态资源走缓存优先策略（API 请求不缓存）
+3. 在 `layout.jsx` 注入 PWA Header 信息：
+   - `manifest: "/manifest.json"`
+   - iOS meta：`apple-mobile-web-app-capable=yes`
+   - iOS meta：`apple-mobile-web-app-status-bar-style=black`
+   - `themeColor: #00e5ff`
+4. 新增安装条件日志：
+   - 当命中 `beforeinstallprompt` 时，控制台输出
+   - `[PWA Service]: Ready to install on home screen.`
