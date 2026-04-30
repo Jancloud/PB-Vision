@@ -757,3 +757,15 @@ GLM：
 5. 上传区文字做“去拥挤”微调（移动端）：
    - 主文案增加 `line-height`
    - 提示文案增加 `line-height` 与轻微 `letter-spacing`
+
+## 30. UI 品牌化升级：Footer 与 About（2026-04-30）
+文件：`src/ui/PoseAnalyzer.jsx`、`src/ui/AboutModal.jsx`、`src/ui/AppFooter.jsx`
+1. 新增页脚 Footer：
+   - 左侧：`v1.0.0-stable`
+   - 右侧：`Built by Jan | IT Architect & Marathoner`
+2. Footer 文案默认半透明灰，Hover 触发赛博蓝发光。
+3. 在标题 `PB Vision` 右侧新增微型 Info 按钮。
+4. 点击 Info 打开 AboutModal（磨砂玻璃背景），分三块内容：
+   - `The Vision`
+   - `The Tech`
+   - `Safety`（醒目免责声明，非医疗建议）

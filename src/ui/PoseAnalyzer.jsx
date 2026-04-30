@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Info } from "lucide-react";
 import {
   detectPoseFromVideo,
   disposePoseDetector,
@@ -19,6 +20,8 @@ import {
 } from "./PoseCanvas";
 import CyberVideoControls from "./CyberVideoControls";
 import ReportModal from "./ReportModal";
+import AboutModal from "./AboutModal";
+import AppFooter from "./AppFooter";
 
 const ANALYZE_EVERY_NTH_FRAME = 3;
 const ABNORMAL_LOG_COOLDOWN_MS = 1500;
@@ -229,6 +232,7 @@ export default function PoseAnalyzer() {
   const [saveNotice, setSaveNotice] = useState("");
   const [isDeepAnalyzing, setIsDeepAnalyzing] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
   const [isMobileView, setIsMobileView] = useState(false);
   const [reportPayload, setReportPayload] = useState({
     score: 0,
@@ -856,19 +860,41 @@ export default function PoseAnalyzer() {
         }
       `}</style>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <h2
-          style={{
-            margin: 0,
-            fontSize: 28,
-            fontWeight: 700,
-            letterSpacing: 0.5,
-            color: "#fff",
-            textShadow: "0 0 5px #fff, 0 0 10px #00f3ff, 0 0 15px #00f3ff, 0 0 20px #e0aaff",
-          }}
-        >
-          PB Vision <span style={{ color: "#22c55e", textShadow: "0 0 6px #22c55e, 0 0 10px #22c55e" }}>·</span> Sports Tech
-        </h2>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <h2
+            style={{
+              margin: 0,
+              fontSize: 28,
+              fontWeight: 700,
+              letterSpacing: 0.5,
+              color: "#fff",
+              textShadow: "0 0 5px #fff, 0 0 10px #00f3ff, 0 0 15px #00f3ff, 0 0 20px #e0aaff",
+            }}
+          >
+            PB Vision <span style={{ color: "#22c55e", textShadow: "0 0 6px #22c55e, 0 0 10px #22c55e" }}>·</span> Sports Tech
+          </h2>
+          <button
+            type="button"
+            onClick={() => setShowAbout(true)}
+            aria-label="打开 About"
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: "50%",
+              border: `1px solid ${theme.border}`,
+              background: "rgba(9, 18, 28, 0.88)",
+              color: theme.subText,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              transition: "all .2s ease",
+            }}
+          >
+            <Info size={14} />
+          </button>
+        </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button
             type="button"
@@ -1189,6 +1215,7 @@ export default function PoseAnalyzer() {
       {showReport ? (
         <ReportModal open={showReport} onClose={() => setShowReport(false)} payload={reportPayload} onUiLog={pushLog} />
       ) : null}
+      {showAbout ? <AboutModal open={showAbout} onClose={() => setShowAbout(false)} /> : null}
 
       {showLogs ? (
         <div style={{ marginTop: 16, border: `1px solid ${theme.border}`, borderRadius: 14, background: theme.panelBg, padding: 12 }}>
@@ -1206,6 +1233,7 @@ export default function PoseAnalyzer() {
           </div>
         </div>
       ) : null}
+      <AppFooter />
     </section>
   );
 }
