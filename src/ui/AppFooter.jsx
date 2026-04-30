@@ -15,7 +15,7 @@ export default function AppFooter() {
       }}
     >
       <span className="pb-footer-text">v1.0.0-stable</span>
-      <span className="pb-footer-text">Built by Jan | IT Architect & Marathoner</span>
+      <span className="pb-footer-text">Built by Jan | IT Workhorse & Marathoner</span>
       <style>{`
         .pb-footer-text {
           color: rgba(180, 194, 210, 0.56);
