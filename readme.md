@@ -769,6 +769,8 @@ GLM：
    - `The Vision`
    - `The Tech`
    - `Safety`（醒目免责声明，非医疗建议）
+5. 移动端报告标题防遮挡补丁：
+   - 在标题容器增加 `padding-right: 60px`，确保右上角 `X` 不覆盖标题文字。
 
 ## 31. PWA 升级（2026-04-30）
 文件：`public/manifest.json`、`public/sw.js`、`src/ui/PwaBootstrap.jsx`、`src/app/layout.jsx`

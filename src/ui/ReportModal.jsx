@@ -295,6 +295,10 @@ export default function ReportModal({ open, onClose, payload, onUiLog }) {
             background: rgba(0, 243, 255, 0.45);
             border-radius: 8px;
           }
+          .header-container {
+            position: relative;
+            padding-right: 60px;
+          }
         `}</style>
 
         <div
@@ -331,18 +335,20 @@ export default function ReportModal({ open, onClose, payload, onUiLog }) {
           </button>
 
           <div style={{ padding: "16px 14px 0" }}>
-            <div
-              style={{
-                textAlign: "center",
-                color: "#00f3ff",
-                letterSpacing: 3,
-                fontSize: 18,
-                textShadow: "0 0 6px rgba(0,243,255,.75), 0 0 18px rgba(0,243,255,.45)",
-                marginBottom: 14,
-                fontWeight: 700,
-              }}
-            >
-              PB-VISION 跑姿分析报告
+            <div className="header-container">
+              <div
+                style={{
+                  textAlign: "center",
+                  color: "#00f3ff",
+                  letterSpacing: 3,
+                  fontSize: 18,
+                  textShadow: "0 0 6px rgba(0,243,255,.75), 0 0 18px rgba(0,243,255,.45)",
+                  marginBottom: 14,
+                  fontWeight: 700,
+                }}
+              >
+                PB-VISION 跑姿分析报告
+              </div>
             </div>
 
             <section
