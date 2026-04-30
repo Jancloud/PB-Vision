@@ -76,7 +76,7 @@ export default function AboutModal({ open, onClose }) {
           >
             <div style={{ color: "#00f3ff", fontWeight: 800, marginBottom: 6 }}>【The Vision】</div>
             <div style={{ fontSize: 14, lineHeight: 1.7, color: "#cde3f4" }}>
-              一个追求 Sub-3 的跑者，把训练中最贵的“动作纠错”做成每个人都用得起的 AI
+              作为马拉松跑者，希望把训练中的“动作纠错”做成每个人身边的 AI
               助手。目标不是制造焦虑，而是让每次训练更安全，让每位跑者都能长期、健康地进步。
             </div>
           </section>
