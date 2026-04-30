@@ -794,3 +794,40 @@ GLM：
 4. 新增安装条件日志：
    - 当命中 `beforeinstallprompt` 时，控制台输出
    - `[PWA Service]: Ready to install on home screen.`
+
+## 32. 坐标去抖动升级（2026-04-30）
+文件：`src/logic/pose_processing.js`、`src/logic/poseDetector.worker.js`
+1. 新增独立去噪模块 `pose_processing.js`：
+   - 使用长度为 `5` 的滑动窗口（Moving Average Filter）。
+   - 对 `shoulder/hip/knee/ankle` 的 `x/y/pixelX/pixelY` 坐标做平滑。
+2. Worker 接入方式：
+   - 关键点通过置信度校验后，再进入滑动平均。
+   - Worker 返回给 UI/Analysis 的坐标已是“平滑后坐标”。
+3. 解耦说明：
+   - `poseDetector.worker.js` 负责识别流程。
+   - `pose_processing.js` 负责去噪算法。
+   - 后续替换去噪算法时，不需要改 UI 和 analysis 计算逻辑。
+
+## 33. 评分函数升级（2026-04-30）
+文件：`src/ui/PoseAnalyzer.jsx`
+1. 新增 `calculate_score(stats, is_elite_mode)`。
+2. 当 `is_elite_mode=true`：
+   - 膝盖最小弯曲度满分区间调整为 `22°-35°`（原 `35°-45°`）。
+   - 躯干前倾最大容忍上限放宽到 `18°`。
+   - 动作变异系数（CV）扣分权重下调。
+3. 评分重心调整为：
+   - 腾空比例代理分（基于膝弯时序动态阈值）。
+   - 动作对称性代理分（基于躯干与膝弯时序平衡性）。
+4. 兼容性：当前调用默认 `is_elite_mode=false`，不影响现有 UI 流程。
+
+## 34. 双常模评分与模拟器（2026-04-30）
+文件：`src/ui/PoseAnalyzer.jsx`、`src/ui/ScoreLogicSimulator.jsx`、`src/ui/ScoreLogicSimulator.module.css`
+1. 评分函数升级为双阈值字典：`NORM_THRESHOLDS.health` 与 `NORM_THRESHOLDS.elite`。
+2. `calculate_score(stats, is_elite_mode)` 会按模式自动切换：
+   - `maxLean`（躯干前倾上限）
+   - `minKnee`（最小膝弯下限）
+   - `maxCv`（变异系数上限）
+3. 在总分中保留“腾空比例”和“动作对称性”奖励，CV 在 elite 模式下扣分更轻。
+4. 新增评分逻辑模拟器组件（独立 UI）：
+   - React State：`isEliteMode / torsoLean / minKnee / cv`
+   - CSS：灰白仪表卡风格 + 环形评分可视化 + 滑杆控制区

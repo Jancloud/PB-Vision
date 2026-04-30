@@ -42,6 +42,19 @@ const theme = {
   danger: "#ff4d4d",
 };
 
+const NORM_THRESHOLDS = {
+  health: {
+    maxLean: 12,
+    minKnee: 35,
+    maxCv: 15,
+  },
+  elite: {
+    maxLean: 20,
+    minKnee: 20,
+    maxCv: 50,
+  },
+};
+
 function formatNow() {
   const now = new Date();
   const hh = String(now.getHours()).padStart(2, "0");
@@ -176,17 +189,96 @@ function buildRiskTags(stats) {
   return tags.slice(0, 3);
 }
 
-function buildScore(stats) {
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function scoreByTargetRatio(value, target, tolerance) {
+  return clamp01(1 - Math.abs(value - target) / tolerance);
+}
+
+function getSeriesFromStatsFrames(stats, key) {
+  return (stats.frames || [])
+    .map((frame) => Number(frame?.[key]))
+    .filter((n) => Number.isFinite(n));
+}
+
+function calcAirtimeProxyScore(kneeSeries) {
+  if (!kneeSeries.length) return 0.5;
+  const kneeMin = Math.min(...kneeSeries);
+  const kneeMax = Math.max(...kneeSeries);
+  const span = Math.max(1e-6, kneeMax - kneeMin);
+  const dynamicThreshold = kneeMin + span * 0.4;
+  const flightRatio = safeDivide(
+    kneeSeries.filter((v) => v >= dynamicThreshold).length,
+    kneeSeries.length
+  );
+  return scoreByTargetRatio(flightRatio, 0.45, 0.35);
+}
+
+function calcSymmetryProxyScore(torsoSeries, kneeSeries, isEliteMode) {
+  if (!torsoSeries.length && !kneeSeries.length) return 0.5;
+
+  let torsoBalanceScore = 0.5;
+  if (torsoSeries.length) {
+    const torsoTarget = isEliteMode ? 10 : 8;
+    const pos = torsoSeries.reduce((sum, v) => sum + Math.max(0, v - torsoTarget), 0);
+    const neg = torsoSeries.reduce((sum, v) => sum + Math.max(0, torsoTarget - v), 0);
+    torsoBalanceScore = 1 - safeDivide(Math.abs(pos - neg), pos + neg + 1e-6);
+  }
+
+  let kneeBalanceScore = 0.5;
+  if (kneeSeries.length) {
+    const kneeMid = (Math.min(...kneeSeries) + Math.max(...kneeSeries)) / 2;
+    const upperRatio = safeDivide(
+      kneeSeries.filter((v) => v >= kneeMid).length,
+      kneeSeries.length
+    );
+    kneeBalanceScore = scoreByTargetRatio(upperRatio, 0.5, 0.5);
+  }
+
+  return clamp01((torsoBalanceScore + kneeBalanceScore) / 2);
+}
+
+function calculate_score(stats, is_elite_mode = false) {
   if (stats.validFrames === 0) return 0;
+  const thresholds = is_elite_mode ? NORM_THRESHOLDS.elite : NORM_THRESHOLDS.health;
+
+  const torsoSeries = getSeriesFromStatsFrames(stats, "torsoLeanAngle");
+  const kneeSeries = getSeriesFromStatsFrames(stats, "kneeFlexionAngle");
+  const torsoAvg = safeDivide(stats.torsoSum, stats.validFrames);
+  const kneeMin = Number.isFinite(stats.kneeFlexMin) ? stats.kneeFlexMin : 0;
+  const airtimeProxyScore = calcAirtimeProxyScore(kneeSeries);
+  const symmetryProxyScore = calcSymmetryProxyScore(torsoSeries, kneeSeries, is_elite_mode);
+
   const abnormalRate = safeDivide(stats.abnormalFrames, stats.validFrames);
   const stiffRate = safeDivide(stats.stiffKneeFrames, stats.validFrames);
-  const torsoRange = stats.torsoMax - stats.torsoMin;
+  const torsoCv = coeffOfVariation(torsoSeries);
+  const kneeCv = coeffOfVariation(kneeSeries);
+  const cvPercent = ((torsoCv + kneeCv) / 2) * 100;
 
-  let score = 100;
-  score -= abnormalRate * 40;
-  score -= stiffRate * 25;
-  score -= Math.min(20, torsoRange * 0.8);
-  return Math.max(0, Math.round(score));
+  const leanOverflow = Math.max(0, torsoAvg - thresholds.maxLean);
+  const kneeDeficit = Math.max(0, thresholds.minKnee - kneeMin);
+  const cvOverflow = Math.max(0, cvPercent - thresholds.maxCv);
+
+  const leanPenalty = leanOverflow * (is_elite_mode ? 1.4 : 2.8);
+  const kneePenalty = kneeDeficit * (is_elite_mode ? 1.2 : 2.2);
+  const cvPenalty = cvOverflow * (is_elite_mode ? 0.18 : 0.65);
+  const safetyPenalty = abnormalRate * 12 + stiffRate * 10;
+
+  const airtimeBonus = (airtimeProxyScore - 0.5) * 18;
+  const symmetryBonus = (symmetryProxyScore - 0.5) * 18;
+
+  const score =
+    100 -
+    leanPenalty -
+    kneePenalty -
+    cvPenalty -
+    safetyPenalty +
+    airtimeBonus +
+    symmetryBonus;
+
+  return Math.max(0, Math.min(100, Math.round(score)));
 }
 
 export default function PoseAnalyzer() {
@@ -234,6 +326,7 @@ export default function PoseAnalyzer() {
   const [showReport, setShowReport] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [isMobileView, setIsMobileView] = useState(false);
+  const [isEliteMode, setIsEliteMode] = useState(false);
   const [reportPayload, setReportPayload] = useState({
     score: 0,
     tags: [],
@@ -256,7 +349,7 @@ export default function PoseAnalyzer() {
     return angle >= 5 && angle <= 10 ? theme.accent : theme.warn;
   }, [angle]);
   const animatedAngle = useAnimatedMetric(angle, { durationMs: 700, decimals: 2 });
-  const liveScore = buildScore(sessionStatsRef.current);
+  const liveScore = calculate_score(sessionStatsRef.current, isEliteMode);
   const abnormalFrameCount = sessionStatsRef.current.abnormalFrames || 0;
   const animatedScore = useAnimatedMetric(liveScore, { durationMs: 760, decimals: 0 });
   const animatedAbnormalFrames = useAnimatedMetric(abnormalFrameCount, { durationMs: 620, decimals: 0 });
@@ -659,6 +752,7 @@ export default function PoseAnalyzer() {
     const abnormalCount = filteredFrames.filter((frame) => frame.isAbnormal).length;
 
     return {
+      isEliteMode,
       frameCount: s.validFrames,
       keptFrameCount,
       sampleSeconds,
@@ -673,11 +767,11 @@ export default function PoseAnalyzer() {
       kneeFlexionMax: kneeSeries.length ? Math.max(...kneeSeries) : 0,
       kneeFlexionCv: coeffOfVariation(kneeSeries),
     };
-  }, []);
+  }, [isEliteMode]);
 
   const buildReportPayload = useCallback((detailsText, sourceLabel) => {
     const stats = sessionStatsRef.current;
-    const score = buildScore(stats);
+    const score = calculate_score(stats, isEliteMode);
     const tags = buildRiskTags(stats);
     const summary = detailsText.split("\n").slice(0, 3).join("\n");
     const frameCount = stats.validFrames || 0;
@@ -692,6 +786,7 @@ export default function PoseAnalyzer() {
       source: sourceLabel,
       generatedAt: new Date().toLocaleString("zh-CN", { hour12: false }),
       metrics: {
+        isEliteMode,
         frameCount,
         abnormalRatePercent,
         torsoLeanAvg,
@@ -701,7 +796,7 @@ export default function PoseAnalyzer() {
         kneeFlexionMax: Number.isFinite(stats.kneeFlexMax) ? stats.kneeFlexMax : 0,
       },
     };
-  }, []);
+  }, [isEliteMode]);
 
   const handleSaveReport = useCallback(async () => {
     if (isDeepAnalyzing) return;
@@ -1095,6 +1190,28 @@ export default function PoseAnalyzer() {
 
         <aside style={{ border: `1px solid ${theme.border}`, borderRadius: 14, padding: 14, background: theme.panelBg }}>
           <h3 style={{ marginTop: 0, marginBottom: 8 }}>实时仪表盘</h3>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+              border: `1px solid ${theme.border}`,
+              borderRadius: 10,
+              padding: "8px 10px",
+              marginBottom: 10,
+              background: "#0a1622",
+              fontSize: 13,
+            }}
+          >
+            <span>评分模式：{isEliteMode ? "精英竞技" : "大众健康"}</span>
+            <input
+              type="checkbox"
+              checked={isEliteMode}
+              onChange={(event) => setIsEliteMode(event.target.checked)}
+              style={{ width: 18, height: 18, accentColor: theme.accent, cursor: "pointer" }}
+            />
+          </label>
           <div
             style={{
               display: "grid",

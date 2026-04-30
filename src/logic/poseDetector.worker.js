@@ -1,4 +1,8 @@
 import { FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
+import {
+  createPoseMovingAverageFilter,
+  DEFAULT_MOVING_AVERAGE_WINDOW,
+} from "./pose_processing";
 
 const POSE_INDEX = {
   left: { shoulder: 11, hip: 23, knee: 25, ankle: 27 },
@@ -7,6 +11,7 @@ const POSE_INDEX = {
 
 let poseLandmarker = null;
 let currentMinConfidence = 0.6;
+let poseSmoother = createPoseMovingAverageFilter(DEFAULT_MOVING_AVERAGE_WINDOW);
 
 function buildError(code, message, details = null) {
   return {
@@ -56,6 +61,9 @@ async function initialize(options = {}) {
   }
 
   currentMinConfidence = options.minConfidence ?? 0.6;
+  poseSmoother = createPoseMovingAverageFilter(
+    options.smoothingWindow ?? DEFAULT_MOVING_AVERAGE_WINDOW
+  );
   const localWasmBase = options.localWasmBasePath || "/mediapipe/wasm";
   const localModelBase = options.localModelBasePath || "/mediapipe/models";
   const modelVariant = options.modelVariant === "full" ? "full" : "lite";
@@ -112,6 +120,7 @@ function detectPoseFromFrame(frame, options = {}) {
     const elapsedMs = Number((performance.now() - startedAt).toFixed(2));
 
     if (!result?.landmarks?.[0]) {
+      poseSmoother.reset();
       return buildError("NO_PERSON_DETECTED", "No person detected in this frame.", { elapsedMs });
     }
 
@@ -125,6 +134,7 @@ function detectPoseFromFrame(frame, options = {}) {
     const lowConfidenceJoints = getLowConfidenceJoints(selectedGroup, minConfidence);
 
     if (lowConfidenceJoints.length > 0) {
+      poseSmoother.reset(selectedSide);
       return buildError("LOW_CONFIDENCE", "Low confidence keypoints.", {
         selectedSide,
         minConfidence,
@@ -133,14 +143,20 @@ function detectPoseFromFrame(frame, options = {}) {
       });
     }
 
+    const smoothedGroup = poseSmoother.smoothPoseGroup(selectedGroup, selectedSide);
+    if (!smoothedGroup) {
+      return buildError("POSE_SMOOTHING_ERROR", "Pose smoothing failed.");
+    }
+
     return {
       ok: true,
-      data: selectedGroup,
+      data: smoothedGroup,
       meta: {
         selectedSide,
         score: Number(Math.max(leftScore, rightScore).toFixed(3)),
         frameSize: { width: frameWidth, height: frameHeight },
         elapsedMs,
+        smoothingWindow: poseSmoother.windowSize,
       },
     };
   } catch (err) {
@@ -185,5 +201,6 @@ self.onmessage = async (event) => {
       poseLandmarker.close();
       poseLandmarker = null;
     }
+    poseSmoother.reset();
   }
 };

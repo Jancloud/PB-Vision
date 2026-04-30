@@ -1,0 +1,181 @@
+.card {
+  border-radius: 20px;
+  padding: 20px;
+  background: #cfd4dc;
+  border: 1px solid #bec5cf;
+  color: #0f1720;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.header h3 {
+  margin: 0;
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.metaGrid {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 4px 18px;
+  text-align: center;
+  font-size: 14px;
+}
+
+.metaGrid strong {
+  font-size: 28px;
+}
+
+.good {
+  color: #0f7c35;
+}
+
+.steady {
+  color: #2f8cff;
+}
+
+.warn {
+  color: #a79a2e;
+}
+
+.bad {
+  color: #d94848;
+}
+
+.ringWrap {
+  margin-top: 18px;
+  border-radius: 22px;
+  background: #f0f2f5;
+  padding: 28px 16px 24px;
+  display: grid;
+  place-items: center;
+}
+
+.badge {
+  margin-bottom: 10px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid #71767e;
+  color: #aeb4bc;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.ring {
+  width: min(56vw, 460px);
+  height: min(56vw, 460px);
+  border-radius: 50%;
+  padding: 24px;
+}
+
+.ringInner {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: #f0f2f5;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.08);
+}
+
+.score {
+  font-size: clamp(40px, 6vw, 70px);
+  font-weight: 800;
+  line-height: 1;
+}
+
+.label {
+  margin-top: 8px;
+  font-size: clamp(16px, 3vw, 28px);
+  letter-spacing: 0.03em;
+  color: #50555d;
+}
+
+.controls {
+  margin: 20px auto 0;
+  max-width: 860px;
+  border-radius: 16px;
+  padding: 18px;
+  background: #d9dde4;
+}
+
+.rowToggle,
+.row {
+  display: grid;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.rowToggle {
+  grid-template-columns: 1fr auto;
+}
+
+.rowToggle input {
+  width: 48px;
+  height: 28px;
+  accent-color: #225fcc;
+}
+
+.row {
+  grid-template-columns: 160px 1fr 80px;
+}
+
+.row span {
+  font-size: 18px;
+}
+
+.row input[type="range"] {
+  width: 100%;
+  accent-color: #225fcc;
+}
+
+.row output {
+  border: 1px solid #7f8792;
+  border-radius: 16px;
+  text-align: center;
+  background: #edf0f4;
+  padding: 8px 0;
+  font-size: 32px;
+  font-weight: 700;
+}
+
+@media (max-width: 768px) {
+  .card {
+    padding: 14px;
+  }
+
+  .header h3 {
+    font-size: 24px;
+  }
+
+  .metaGrid {
+    font-size: 12px;
+  }
+
+  .metaGrid strong {
+    font-size: 18px;
+  }
+
+  .ring {
+    width: min(72vw, 360px);
+    height: min(72vw, 360px);
+  }
+
+  .row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .row output {
+    font-size: 24px;
+  }
+}
+
