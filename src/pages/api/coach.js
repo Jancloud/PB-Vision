@@ -37,6 +37,7 @@ function isPlainObject(v) {
 
 function sanitizeMetrics(input) {
   const obj = isPlainObject(input) ? input : {};
+  const isEliteMode = Boolean(obj.isEliteMode ?? obj.is_elite_mode);
   const frameCount = Math.max(0, Math.round(toNum(obj.frameCount)));
   const keptFrameCount = Math.max(0, Math.round(toNum(obj.keptFrameCount, frameCount)));
   const sampleSeconds = Math.max(0, Math.round(toNum(obj.sampleSeconds)));
@@ -44,6 +45,7 @@ function sanitizeMetrics(input) {
   const denoiseThreshold = clamp(toNum(obj.denoiseThreshold, 0.6), 0, 1);
 
   return {
+    isEliteMode,
     frameCount,
     keptFrameCount,
     sampleSeconds,
@@ -113,7 +115,39 @@ function buildCoachPrompt(m) {
     "精英跑者落地缓冲常模：膝盖弯曲不会接近 0° 硬顶落地。",
   ].join("\n");
 
+  const modeText = m.isEliteMode ? "精英竞技模式" : "大众健康模式";
+  const modeFeatureText = m.isEliteMode
+    ? [
+        `【竞技特征】下肢刚性极高 (${m.kneeFlexion.min.toFixed(2)}°)`,
+        `【竞技特征】高速动态平衡前倾 (${m.torsoLean.max.toFixed(2)}°)`,
+        `【竞技特征】高速下动态调整能力 (${(m.torsoLean.cv * 100).toFixed(2)}%)`,
+      ].join("\n")
+    : [
+        `【风险特征】膝盖弯曲过小 (${m.kneeFlexion.min.toFixed(2)}°)`,
+        `【风险特征】前倾偏大 (${m.torsoLean.max.toFixed(2)}°)`,
+        `【风险特征】动作稳定性波动 (${(m.torsoLean.cv * 100).toFixed(2)}%)`,
+      ].join("\n");
+
+  const semanticMetrics = m.isEliteMode
+    ? {
+        analysisMode: modeText,
+        竞技特征: {
+          下肢刚性极高: `${m.kneeFlexion.min.toFixed(2)}°`,
+          高速前倾动态平衡: `${m.torsoLean.max.toFixed(2)}°`,
+          高速动态调整能力: `${(m.torsoLean.cv * 100).toFixed(2)}%`,
+        },
+      }
+    : {
+        analysisMode: modeText,
+        风险特征: {
+          膝盖弯曲过小: `${m.kneeFlexion.min.toFixed(2)}°`,
+          前倾偏大: `${m.torsoLean.max.toFixed(2)}°`,
+          动作稳定性波动: `${(m.torsoLean.cv * 100).toFixed(2)}%`,
+        },
+      };
+
   const metricText = [
+    `analysisMode: ${modeText}`,
     `frameCount: ${m.frameCount}`,
     `keptFrameCount(after denoise): ${m.keptFrameCount}`,
     `sampleSeconds: ${m.sampleSeconds}`,
@@ -121,7 +155,15 @@ function buildCoachPrompt(m) {
     `torsoLean(avg/min/max/cv): ${m.torsoLean.avg.toFixed(2)} / ${m.torsoLean.min.toFixed(2)} / ${m.torsoLean.max.toFixed(2)} / ${m.torsoLean.cv.toFixed(4)}`,
     `kneeFlexion(avg/min/max/cv): ${m.kneeFlexion.avg.toFixed(2)} / ${m.kneeFlexion.min.toFixed(2)} / ${m.kneeFlexion.max.toFixed(2)} / ${m.kneeFlexion.cv.toFixed(4)}`,
     `denoiseThreshold: ${m.denoiseThreshold}`,
+    modeFeatureText,
+    `semanticMetricsJson: ${JSON.stringify(semanticMetrics, null, 2)}`,
   ].join("\n");
+
+  const eliteSystemInjection = `你现在是一位执教世界级长跑运动员的顶级生物力学教练。你的分析对象具备极强的核心力量和完美的跑步经济性。
+请不要用大众健康跑者的防伤标准来评判他。
+当看到极小的膝弯角（如低于25°）时，请理解为高下肢刚性（Stiffness）和极短的触地时间；
+当看到较大的前倾或变异系数时，请理解为高速奔跑下的动态平衡与极致的向前提拉。
+你的建议不应是基础的防伤训练，而应关注：能量转化率、神经肌肉募集效率，或直接赞赏其出色的竞技特质。`;
 
   const systemPrompt = `
 你是一位国家队跑步专项教练与体能教练。
@@ -158,7 +200,10 @@ ${eliteNorm}
 5) 不要开场白、客套话、结语，直接给核心结果。
 `.trim();
 
-  return { systemPrompt, userPrompt };
+  return {
+    systemPrompt: m.isEliteMode ? `${eliteSystemInjection}\n\n${systemPrompt}` : systemPrompt,
+    userPrompt,
+  };
 }
 
 async function callCoachModel(config, messages) {

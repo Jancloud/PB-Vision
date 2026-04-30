@@ -831,3 +831,12 @@ GLM：
 4. 新增评分逻辑模拟器组件（独立 UI）：
    - React State：`isEliteMode / torsoLean / minKnee / cv`
    - CSS：灰白仪表卡风格 + 环形评分可视化 + 滑杆控制区
+
+## 35. 精英模式 Prompt 注入（2026-04-30）
+文件：`src/pages/api/coach.js`
+1. `sanitizeMetrics` 新增模式识别：兼容 `isEliteMode` 与 `is_elite_mode`。
+2. 当精英模式开启时，System Prompt 最前面会注入“世界级长跑生物力学教练”设定。
+3. 给模型的结构化语义数据改为双命名：
+   - 大众模式：`风险特征`
+   - 精英模式：`竞技特征`
+4. 新增 `semanticMetricsJson` 字段注入到 Prompt，利用键名语义引导大模型输出方向。
