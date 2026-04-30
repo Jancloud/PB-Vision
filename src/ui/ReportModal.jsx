@@ -99,9 +99,9 @@ function parseCoachSections(text) {
   };
 
   const headingToKey = (line) => {
-    if (/技术诊断/.test(line)) return "tech";
+    if (/(技术分析|技术诊断)/.test(line)) return "tech";
     if (/常模对比/.test(line)) return "norm";
-    if (/训练处方/.test(line)) return "train";
+    if (/(针对性建议|训练处方)/.test(line)) return "train";
     if (/复测目标/.test(line)) return "retest";
     return "";
   };
@@ -114,8 +114,8 @@ function parseCoachSections(text) {
     if (nextKey) {
       currentKey = nextKey;
       const stripped = line
-        .replace(/[【\[]\s*(技术诊断|常模对比|训练处方|复测目标)\s*[】\]]\s*[:：]?/g, "")
-        .replace(/^(技术诊断|常模对比|训练处方|复测目标)\s*[:：]?/g, "")
+        .replace(/[【\[]\s*(技术分析|技术诊断|常模对比|针对性建议|训练处方|复测目标)\s*[】\]]\s*[:：]?/g, "")
+        .replace(/^(技术分析|技术诊断|常模对比|针对性建议|训练处方|复测目标)\s*[:：]?/g, "")
         .trim();
       if (stripped) sections[currentKey].push(stripped);
       return;
@@ -133,19 +133,19 @@ function buildRiskCards(metrics, tags) {
   const cards = [];
 
   if (typeof m.kneeFlexionMin === "number" && m.kneeFlexionMin < 8) {
-    cards.push(`膝盖最小弯曲仅 ${m.kneeFlexionMin.toFixed(1)}°，接近硬顶落地风险。`);
+    cards.push(`膝盖最小弯曲仅 ${m.kneeFlexionMin.toFixed(1)}°，接近硬顶落地提示。`);
   }
   if (typeof m.torsoLeanMax === "number" && m.torsoLeanMax > 15) {
-    cards.push(`躯干最大前倾 ${m.torsoLeanMax.toFixed(1)}°，存在前扑负荷风险。`);
+    cards.push(`躯干最大前倾 ${m.torsoLeanMax.toFixed(1)}°，存在前扑负荷提示。`);
   }
   if (typeof m.abnormalRatePercent === "number" && m.abnormalRatePercent > 30) {
-    cards.push(`异常帧占比 ${m.abnormalRatePercent.toFixed(1)}%，动作稳定性需优先提升。`);
+    cards.push(`偏离帧占比 ${m.abnormalRatePercent.toFixed(1)}%，动作稳定性需优先提升。`);
   }
 
   if (!cards.length && Array.isArray(tags) && tags.length) {
     return tags.map((t) => `${t}：建议优先做针对性力量与稳定训练。`);
   }
-  return cards.length ? cards : ["当前关键风险可控，建议继续巩固核心与步频稳定性。"];
+  return cards.length ? cards : ["当前关键指标可控，建议继续巩固核心与步频稳定性。"];
 }
 
 function sectionButtonStyle(expanded) {
@@ -225,7 +225,7 @@ export default function ReportModal({ open, onClose, payload, onUiLog }) {
     return [
       {
         key: "tech",
-        title: "技术诊断",
+        title: "技术分析",
         icon: Activity,
         lines: parsed.tech.length ? parsed.tech : fallback.slice(0, 2),
       },
@@ -237,7 +237,7 @@ export default function ReportModal({ open, onClose, payload, onUiLog }) {
       },
       {
         key: "train",
-        title: "训练处方",
+        title: "针对性建议",
         icon: Dumbbell,
         lines: parsed.train.length ? parsed.train : fallback.slice(3, 5),
       },
@@ -342,7 +342,7 @@ export default function ReportModal({ open, onClose, payload, onUiLog }) {
                 fontWeight: 700,
               }}
             >
-              PB-VISION 深度诊断
+              PB-VISION 跑姿分析报告
             </div>
 
             <section
@@ -407,7 +407,7 @@ export default function ReportModal({ open, onClose, payload, onUiLog }) {
                 }}
               >
                 <div style={{ display: "flex", gap: 6, alignItems: "center", color: "#00f3ff", marginBottom: 6, fontWeight: 700 }}>
-                  <AlertTriangle size={14} /> 核心风险区
+                  <AlertTriangle size={14} /> 核心关注区
                 </div>
                 <div style={{ display: "grid", gap: 6 }}>
                   {riskCards.slice(0, 2).map((risk, idx) => (
@@ -427,12 +427,12 @@ export default function ReportModal({ open, onClose, payload, onUiLog }) {
                 }}
               >
                 <div style={{ display: "flex", gap: 6, alignItems: "center", color: "#00f3ff", marginBottom: 6, fontWeight: 700 }}>
-                  <Gauge size={14} /> 技术诊断
+                  <Gauge size={14} /> 技术分析
                 </div>
                 <div style={{ display: "grid", gap: 5, fontSize: 12, color: "#cde8ff" }}>
                   <div>前倾均值：{torsoAnimated.toFixed(2)}°</div>
                   <div>最小膝弯：{kneeAnimated.toFixed(2)}°</div>
-                  <div>异常占比：{abnormalAnimated.toFixed(2)}%</div>
+                  <div>偏离占比：{abnormalAnimated.toFixed(2)}%</div>
                 </div>
               </article>
             </section>
@@ -605,7 +605,7 @@ export default function ReportModal({ open, onClose, payload, onUiLog }) {
           }}
         />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-          <h2 style={{ margin: 0, fontSize: 34, letterSpacing: 1, color: "#00f3ff" }}>PB-Vision 深度诊断</h2>
+          <h2 style={{ margin: 0, fontSize: 34, letterSpacing: 1, color: "#00f3ff" }}>PB-Vision 跑姿分析报告</h2>
           <button
             type="button"
             onClick={onClose}
@@ -667,13 +667,13 @@ export default function ReportModal({ open, onClose, payload, onUiLog }) {
                   <AlertTriangle size={16} color="#ff3b5f" />
                   最小膝盖弯曲：{kneeAnimated.toFixed(2)}°
                 </div>
-                <div style={{ color: "#b8d4ea" }}>异常帧占比：{abnormalAnimated.toFixed(2)}%</div>
+                <div style={{ color: "#b8d4ea" }}>偏离帧占比：{abnormalAnimated.toFixed(2)}%</div>
               </div>
             </div>
           </section>
 
           <section style={{ border: "1px solid #19324a", borderRadius: 14, padding: 16, background: "#0b1220" }}>
-            <h3 style={{ marginTop: 0, marginBottom: 10, color: "#ff7a90", fontSize: 20 }}>核心风险区</h3>
+            <h3 style={{ marginTop: 0, marginBottom: 10, color: "#ff7a90", fontSize: 20 }}>核心关注区</h3>
             <div style={{ display: "grid", gap: 10 }}>
               {riskCards.map((text, idx) => (
                 <article
@@ -725,7 +725,7 @@ export default function ReportModal({ open, onClose, payload, onUiLog }) {
           <div style={{ color: "#83a8c6", fontSize: 13, marginBottom: 6 }}>
             来源：{payload?.source || "本地规则"} | 时间：{payload?.generatedAt || "-"}
           </div>
-          <div style={{ color: "#9fc6de", fontSize: 13 }}>💡 建议：您可以直接截图保存这份诊断报告，或随时在应用中查看。</div>
+          <div style={{ color: "#9fc6de", fontSize: 13 }}>💡 建议：您可以直接截图保存这份分析报告，或随时在应用中查看。</div>
         </div>
       </div>
     </div>

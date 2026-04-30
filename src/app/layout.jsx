@@ -2,7 +2,7 @@ import "./globals.css";
 import PwaBootstrap from "../ui/PwaBootstrap";
 
 export const metadata = {
-  title: "AI 跑姿视觉诊断助手",
+  title: "AI 跑姿视觉分析助手",
   description: "上传视频，识别关键点，实时查看躯干前倾角",
   manifest: "/manifest.json",
   other: {

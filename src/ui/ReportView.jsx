@@ -93,7 +93,7 @@ export default function ReportView({
 }) {
   return (
     <section style={styles.card}>
-      <h3 style={styles.title}>跑姿诊断报告（金字塔）</h3>
+      <h3 style={styles.title}>跑姿分析报告（金字塔）</h3>
 
       <div style={styles.scoreWrap}>
         <div style={styles.score}>{reportScore}</div>

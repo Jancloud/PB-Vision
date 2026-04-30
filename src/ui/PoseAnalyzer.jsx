@@ -117,7 +117,7 @@ function useAnimatedMetric(target, options = {}) {
 function createInitialAdvice() {
   return {
     currentStatus: "【当前状态】等待视频帧数据。",
-    potentialRisk: "【潜在风险】暂无。",
+    potentialRisk: "【潜在关注点】暂无。",
     action: "【一句话改进动作】先上传并播放一段侧面跑步视频。",
     isAbnormal: false,
     issueTag: "normal",
@@ -418,9 +418,9 @@ export default function PoseAnalyzer() {
 
     boot().catch((err) => {
       if (!isMountedRef.current) return;
-      setStatus("系统：初始化异常");
-      setErrorText("模型初始化异常，请刷新重试。");
-      pushLog(`系统异常：${String(err?.message || err)}`);
+      setStatus("系统：初始化未完成");
+      setErrorText("模型初始化未完成，请刷新重试。");
+      pushLog(`系统提示：${String(err?.message || err)}`);
       setIsLoading(false);
     });
 
@@ -580,15 +580,15 @@ export default function PoseAnalyzer() {
       if (finalAdvice.isAbnormal) {
         const now = Date.now();
         if (now - lastAbnormalLogAtRef.current > ABNORMAL_LOG_COOLDOWN_MS) {
-          pushLog("[Analysis 部门]：识别到异常跑姿，已发送纠正建议至 UI 部门。");
+          pushLog("[Analysis 部门]：识别到偏离姿态，已发送纠正建议至 UI 部门。");
           lastAbnormalLogAtRef.current = now;
         }
       }
     } catch (err) {
       if (!isMountedRef.current) return;
-      setStatus("系统：处理异常");
+      setStatus("系统：处理中断");
       setErrorText("本帧处理失败，已自动跳过。");
-      pushLog(`系统异常：${String(err?.message || err)}`);
+      pushLog(`系统提示：${String(err?.message || err)}`);
     } finally {
       isAnalyzingRef.current = false;
     }
@@ -641,7 +641,7 @@ export default function PoseAnalyzer() {
     const durationSec = s.startAt && s.endAt ? Math.max(1, Math.round((s.endAt - s.startAt) / 1000)) : 0;
 
     return [
-      `本次视频共分析 ${s.validFrames} 帧（约 ${durationSec} 秒），异常帧占比约 ${abnormalRate.toFixed(1)}%。`,
+      `本次视频共分析 ${s.validFrames} 帧（约 ${durationSec} 秒），偏离帧占比约 ${abnormalRate.toFixed(1)}%。`,
       `躯干前倾平均约 ${avgTorso.toFixed(1)}°，范围 ${s.torsoMin.toFixed(1)}° ~ ${s.torsoMax.toFixed(1)}°。`,
       `膝盖弯曲度范围 ${s.kneeFlexMin.toFixed(1)}° ~ ${s.kneeFlexMax.toFixed(1)}°。`,
       "本地教练总结：先把步子略收小，保持核心稳定，落地时让膝盖像弹簧先松一点，再逐步提速。",
@@ -736,7 +736,7 @@ export default function PoseAnalyzer() {
       setReportText(cloudReport);
       setReportPayload(buildReportPayload(cloudReport, data.provider || "云端教练"));
       setShowReport(true);
-      setSaveNotice("云端教练报告已生成，正在展示深度诊断弹窗。");
+      setSaveNotice("云端教练报告已生成，正在展示跑姿分析弹窗。");
       setStatus("UI 部门：云端报告已刷新");
       pushLog("Analysis 部门：云端教练返回成功，报告已渲染。");
     } catch (err) {
@@ -1136,13 +1136,13 @@ export default function PoseAnalyzer() {
                 background: "#0a1622",
               }}
             >
-              <div style={{ fontSize: 12, color: theme.subText }}>异常帧</div>
+              <div style={{ fontSize: 12, color: theme.subText }}>偏离帧</div>
               <div style={{ fontSize: isMobileView ? 24 : 32, fontWeight: 800, color: "#ff8d8d", lineHeight: 1.1 }}>
                 {Math.round(animatedAbnormalFrames)}
               </div>
             </div>
           </div>
-          <div style={{ fontSize: 12, color: theme.subText, marginTop: 8 }}>正常骨架荧光蓝，异常骨架荧光红脉冲</div>
+          <div style={{ fontSize: 12, color: theme.subText, marginTop: 8 }}>正常骨架荧光蓝，偏离时骨架荧光红脉冲</div>
           <div style={{ marginTop: 10, fontSize: 13 }}>状态：{status}</div>
 
           {qualityWarning ? <div style={{ marginTop: 8, color: theme.warn, fontSize: 13 }}>质量自检：{qualityWarning}</div> : null}

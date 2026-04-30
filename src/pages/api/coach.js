@@ -117,7 +117,7 @@ function buildCoachPrompt(m) {
     `frameCount: ${m.frameCount}`,
     `keptFrameCount(after denoise): ${m.keptFrameCount}`,
     `sampleSeconds: ${m.sampleSeconds}`,
-    `abnormalRate(%): ${m.abnormalRate.toFixed(2)}`,
+    `deviationRate(%): ${m.abnormalRate.toFixed(2)}`,
     `torsoLean(avg/min/max/cv): ${m.torsoLean.avg.toFixed(2)} / ${m.torsoLean.min.toFixed(2)} / ${m.torsoLean.max.toFixed(2)} / ${m.torsoLean.cv.toFixed(4)}`,
     `kneeFlexion(avg/min/max/cv): ${m.kneeFlexion.avg.toFixed(2)} / ${m.kneeFlexion.min.toFixed(2)} / ${m.kneeFlexion.max.toFixed(2)} / ${m.kneeFlexion.cv.toFixed(4)}`,
     `denoiseThreshold: ${m.denoiseThreshold}`,
@@ -128,13 +128,13 @@ function buildCoachPrompt(m) {
 输出必须简洁、直接、数据优先，不要任何开场白、客套话、结语。
 总字数（含标点与换行）必须 <= 500 字。
 严格按以下模板输出：
-【技术诊断】
+【技术分析】
 1) 仅写最严重问题1（1句）
 2) 仅写最严重问题2（1句）
 【常模对比】
 1) 躯干前倾：高于/低于精英常模X%
 2) 膝盖缓冲：高于/低于精英常模X%
-【训练处方】
+【针对性建议】
 1) 动作A（<=30字）
 2) 动作B（<=30字）
 【复测目标】
@@ -152,8 +152,8 @@ ${eliteNorm}
 
 要求：
 1) 报告总字数必须 <= 500 字；
-2) 技术诊断只保留最严重2个问题；
-3) 训练处方仅2个核心动作，每个动作描述 <= 30字；
+2) 技术分析只保留最严重2个问题；
+3) 针对性建议仅2个核心动作，每个动作描述 <= 30字；
 4) 常模对比必须使用“高于/低于精英常模X%”短语；
 5) 不要开场白、客套话、结语，直接给核心结果。
 `.trim();

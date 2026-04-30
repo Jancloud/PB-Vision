@@ -110,7 +110,7 @@ export default function AboutModal({ open, onClose }) {
               <ShieldAlert size={15} />【Safety】
             </div>
             <div style={{ fontSize: 14, lineHeight: 1.7, color: "#ffd7df" }}>
-              本系统仅提供运动技术参考，不构成医疗建议或诊断结论。若出现疼痛、伤病或异常症状，请及时咨询专业医生或康复师。
+              本系统仅提供跑姿训练参考，不构成专业决策依据。如出现持续不适或状态变化，请及时咨询线下专业人士。
             </div>
           </section>
         </div>
@@ -118,4 +118,3 @@ export default function AboutModal({ open, onClose }) {
     </div>
   );
 }
-

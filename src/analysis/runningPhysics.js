@@ -121,7 +121,7 @@ export function getSkeletonAlert(metrics) {
 
 /**
  * 三段式教练建议：
- * 【当前状态】+【潜在风险】+【一句话改进动作】
+ * 【当前状态】+【潜在关注点】+【一句话改进动作】
  */
 export function getGaitAdvice(metrics) {
   const torsoLean = metrics?.torsoLeanAngle;
@@ -133,23 +133,23 @@ export function getGaitAdvice(metrics) {
 
   const skeletonAlert = getSkeletonAlert(metrics);
   let currentStatus = "【当前状态】躯干前倾在合理区间。";
-  let potentialRisk = "【潜在风险】当前姿态风险较低。";
+  let potentialRisk = "【潜在关注点】当前姿态指标较稳。";
   let action = "【一句话改进动作】保持抬头看前方，继续用小步快频率跑。";
   let issueTag = "normal";
 
   if (torsoLean < 5) {
     currentStatus = `【当前状态】躯干前倾 ${torsoLean.toFixed(1)}°，偏直甚至有后仰趋势。`;
-    potentialRisk = "【潜在风险】重心容易落后，刹车感更重，跑久了更容易累。";
+    potentialRisk = "【潜在关注点】重心容易落后，刹车感更重，跑久了更容易累。";
     action = "【一句话改进动作】从脚踝微微前倾，像整个人轻轻向前“倒”出去。";
     issueTag = "back_lean";
   } else if (torsoLean > 10 && torsoLean <= 15) {
     currentStatus = `【当前状态】躯干前倾 ${torsoLean.toFixed(1)}°，偏大。`;
-    potentialRisk = "【潜在风险】腰背和小腿负担会增加，后程掉速概率上升。";
+    potentialRisk = "【潜在关注点】腰背和小腿负担会增加，后程掉速概率上升。";
     action = "【一句话改进动作】收紧核心，想象头顶被线往上提，前倾减少一点。";
     issueTag = "over_lean";
   } else if (torsoLean > 15) {
     currentStatus = `【当前状态】躯干前倾 ${torsoLean.toFixed(1)}°，明显过大。`;
-    potentialRisk = "【潜在风险】容易“扑着跑”，膝踝和腰背冲击都更大。";
+    potentialRisk = "【潜在关注点】容易“扑着跑”，膝踝和腰背冲击都更大。";
     action = "【一句话改进动作】先降一点速度，稳住核心后再恢复配速。";
     issueTag = "over_lean_severe";
   }
@@ -157,7 +157,7 @@ export function getGaitAdvice(metrics) {
   if (kneeFlex < 8) {
     currentStatus = `【当前状态】落地瞬间膝盖弯曲度 ${kneeFlex.toFixed(1)}°，接近完全蹬直。`;
     potentialRisk =
-      "【潜在风险】易受伤预警：硬顶落地会放大膝关节和胫骨冲击，出现膝前侧不适概率上升。";
+      "【潜在关注点】动作负荷提示：硬顶落地会放大膝关节和胫骨冲击，出现膝前侧不适概率上升。";
     action = "【一句话改进动作】落地前让膝盖像弹簧先微微松开，并把步子收小一点。";
     issueTag = "stiff_knee";
   }
