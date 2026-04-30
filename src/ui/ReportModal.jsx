@@ -206,7 +206,7 @@ export default function ReportModal({ open, onClose, payload, onUiLog }) {
 
   useEffect(() => {
     if (!open || !isMobileView || hasLoggedSafePaddingRef.current) return;
-    const msg = "[UI 监控]: 已应用移动报告底部安全区留白补丁。";
+    const msg = "[UI 监控]: 已切换移动报告操作栏为底部文档流布局。";
     if (typeof onUiLog === "function") onUiLog(msg);
     else if (process.env.NODE_ENV !== "production") {
       // eslint-disable-next-line no-console
@@ -303,9 +303,34 @@ export default function ReportModal({ open, onClose, payload, onUiLog }) {
             background: "linear-gradient(180deg, #050b14 0%, #0b1624 100%)",
             color: "#e5f2ff",
             animation: "mobileReportIn .24s ease-out",
+            position: "relative",
           }}
         >
-          <div style={{ padding: "16px 14px calc(100px + env(safe-area-inset-bottom))" }}>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="关闭报告"
+            style={{
+              position: "absolute",
+              top: "1rem",
+              right: "1rem",
+              border: "1px solid rgba(255, 59, 95, 0.9)",
+              color: "#ff5c7a",
+              background: "rgba(8, 18, 30, 0.82)",
+              borderRadius: 10,
+              width: 40,
+              height: 40,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              zIndex: 2,
+            }}
+          >
+            <X size={18} />
+          </button>
+
+          <div style={{ padding: "16px 14px 0" }}>
             <div
               style={{
                 textAlign: "center",
@@ -477,61 +502,55 @@ export default function ReportModal({ open, onClose, payload, onUiLog }) {
                 {shareHint}
               </div>
             ) : null}
-          </div>
-
-          <div
-            style={{
-              position: "fixed",
-              left: 0,
-              right: 0,
-              bottom: 0,
-              padding: "10px 12px calc(10px + env(safe-area-inset-bottom))",
-              background: "rgba(4, 10, 18, 0.94)",
-              borderTop: "1px solid rgba(0,243,255,.25)",
-              backdropFilter: "blur(10px)",
-              WebkitBackdropFilter: "blur(10px)",
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 10,
-              zIndex: 8,
-            }}
-          >
-            <button
-              type="button"
-              onClick={onClose}
+            <div
               style={{
-                minHeight: 46,
-                border: "1px solid #00f3ff",
-                borderRadius: 12,
-                background: "linear-gradient(90deg, #006f8e, #00a3d0)",
-                color: "#e9fdff",
-                fontWeight: 700,
-                fontSize: 14,
-                cursor: "pointer",
+                position: "relative",
+                marginTop: 14,
+                paddingBottom: "calc(2rem + env(safe-area-inset-bottom))",
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
               }}
             >
-              关闭报告
-            </button>
-            <button
-              type="button"
-              onClick={handleShareHint}
-              style={{
-                minHeight: 46,
-                border: "1px solid #00f3ff",
-                borderRadius: 12,
-                background: "linear-gradient(90deg, #0082b3, #00f3ff)",
-                color: "#041118",
-                fontWeight: 800,
-                fontSize: 14,
-                cursor: "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 8,
-              }}
-            >
-              <Share2 size={16} /> 截屏分享建议
-            </button>
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  minHeight: 46,
+                  border: "1px solid #00f3ff",
+                  borderRadius: 12,
+                  background: "linear-gradient(90deg, #006f8e, #00a3d0)",
+                  color: "#e9fdff",
+                  fontWeight: 700,
+                  fontSize: 14,
+                  cursor: "pointer",
+                  boxShadow: "0 0 12px rgba(0, 243, 255, 0.24)",
+                }}
+              >
+                关闭报告
+              </button>
+              <button
+                type="button"
+                onClick={handleShareHint}
+                style={{
+                  minHeight: 46,
+                  border: "1px solid #00f3ff",
+                  borderRadius: 12,
+                  background: "linear-gradient(90deg, #0082b3, #00f3ff)",
+                  color: "#041118",
+                  fontWeight: 800,
+                  fontSize: 14,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  boxShadow: "0 0 12px rgba(0, 243, 255, 0.24)",
+                }}
+              >
+                <Share2 size={16} /> 截屏分享建议
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -15,6 +15,19 @@ body {
   min-height: 100vh;
 }
 
+.home-main {
+  min-height: 100vh;
+  background: #070d14;
+  padding: 24px;
+}
+
+@media (max-width: 768px) {
+  .home-main {
+    /* 移动端收窄外层边距，把可视宽度让给核心内容 */
+    padding: 0;
+  }
+}
+
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;

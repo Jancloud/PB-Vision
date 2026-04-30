@@ -738,8 +738,22 @@ GLM：
 
 ### 28.6 移动端底部安全区补丁
 文件：`src/ui/ReportModal.jsx`、`src/ui/PoseAnalyzer.jsx`
-1. 保持底部操作栏 `position: fixed` 不变。
-2. 给移动端报告正文父容器增加底部留白：
-   - `padding-bottom: calc(100px + env(safe-area-inset-bottom))`
-3. 新增架构监控日志：
-   - `[UI 监控]: 已应用移动报告底部安全区留白补丁。`
+1. 移动端底部操作栏改为文档流内布局（不再使用 `position: fixed`），作为报告正文最后一个子元素。
+2. 按钮区增加底部留白，避免紧贴系统导航栏：
+   - `padding-bottom: calc(2rem + env(safe-area-inset-bottom))`
+3. 新增顶部快速关闭入口：
+   - 右上角 `X` 按钮（`position: absolute; top: 1rem; right: 1rem;`）
+4. 按钮在移动端改为纵向堆叠，保留赛博蓝发光风格，提升大拇指点击体验。
+5. 新增架构监控日志：
+   - `[UI 监控]: 已切换移动报告操作栏为底部文档流布局。`
+
+## 29. 首页移动端空间优化（2026-04-30）
+文件：`src/app/page.jsx`、`src/app/globals.css`、`src/ui/PoseAnalyzer.jsx`
+1. 首页外层容器改为 `home-main` 类统一管理。
+2. 桌面端保持 `padding: 24px` 与居中布局。
+3. 移动端（`<= 768px`）外层容器改为 `padding: 0`，释放横向空间给核心内容。
+4. `PoseAnalyzer` 在移动端使用更贴近报告页的水平内边距：
+   - `padding: 20px 14px 28px`
+5. 上传区文字做“去拥挤”微调（移动端）：
+   - 主文案增加 `line-height`
+   - 提示文案增加 `line-height` 与轻微 `letter-spacing`

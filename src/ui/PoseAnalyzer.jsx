@@ -838,7 +838,7 @@ export default function PoseAnalyzer() {
       style={{
         maxWidth: 1120,
         margin: "0 auto",
-        padding: "22px 16px 28px",
+        padding: isMobileView ? "20px 14px 28px" : "22px 16px 28px",
         color: theme.text,
         fontFamily: "Rajdhani, Noto Sans SC, Microsoft YaHei, sans-serif",
       }}
@@ -916,8 +916,10 @@ export default function PoseAnalyzer() {
           cursor: "pointer",
         }}
       >
-        <div style={{ fontSize: 18, fontWeight: 700 }}>拖拽视频到这里，或点击选择文件</div>
-        <div style={{ fontSize: 13, color: theme.subText, marginTop: 6 }}>
+        <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.45, letterSpacing: isMobileView ? 0.2 : 0 }}>
+          拖拽视频到这里，或点击选择文件
+        </div>
+        <div style={{ fontSize: 13, color: theme.subText, marginTop: 6, lineHeight: 1.7, letterSpacing: isMobileView ? 0.15 : 0 }}>
           智能拍摄助手：请确保摄影机与跑者呈 90° 侧面，光线充足，且全身入镜。
         </div>
         <input ref={fileInputRef} type="file" accept="video/*" onChange={handleFileChange} style={{ display: "none" }} />
